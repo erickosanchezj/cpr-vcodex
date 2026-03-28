@@ -12,17 +12,72 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
+#include "activities/apps/ReadingStatsDetailActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
 constexpr unsigned long skipPageMs = 700;
 constexpr unsigned long goHomeMs = 1000;
+
+const xtc::ChapterInfo* findCurrentChapter(Xtc& xtc, const uint32_t currentPage) {
+  if (!xtc.hasChapters()) {
+    return nullptr;
+  }
+
+  const auto& chapters = xtc.getChapters();
+  for (const auto& chapter : chapters) {
+    if (currentPage >= chapter.startPage && currentPage <= chapter.endPage) {
+      return &chapter;
+    }
+  }
+  return nullptr;
+}
+
+std::string getChapterTitleForStats(Xtc& xtc, const uint32_t currentPage) {
+  const auto* chapter = findCurrentChapter(xtc, currentPage);
+  if (!chapter) {
+    return "";
+  }
+  return chapter->name;
+}
+
+uint8_t getChapterProgressForStats(Xtc& xtc, const uint32_t currentPage) {
+  const auto* chapter = findCurrentChapter(xtc, currentPage);
+  if (!chapter || chapter->endPage < chapter->startPage) {
+    return 0;
+  }
+
+  const uint32_t chapterLength = static_cast<uint32_t>(chapter->endPage - chapter->startPage + 1);
+  if (chapterLength == 0) {
+    return 0;
+  }
+
+  const uint32_t pageOffset = static_cast<uint32_t>(currentPage - chapter->startPage + 1);
+  return static_cast<uint8_t>(std::min<uint32_t>(100, (pageOffset * 100 + chapterLength / 2) / chapterLength));
+}
+
+void exitReaderToHomeOrStats(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& bookPath) {
+  READING_STATS.endSession();
+  const bool countedSession =
+      READING_STATS.getLastSessionSnapshot().valid && READING_STATS.getLastSessionSnapshot().counted &&
+      READING_STATS.getLastSessionSnapshot().path == bookPath;
+
+  if (SETTINGS.showStatsAfterReading && countedSession && !bookPath.empty()) {
+    activityManager.replaceActivity(
+        std::make_unique<ReadingStatsDetailActivity>(renderer, mappedInput, bookPath, ReadingStatsDetailContext{true}));
+  } else {
+    activityManager.goHome();
+  }
+}
 }  // namespace
 
 void XtcReaderActivity::onEnter() {
@@ -41,6 +96,9 @@ void XtcReaderActivity::onEnter() {
   APP_STATE.openEpubPath = xtc->getPath();
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
+  READING_STATS.beginSession(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getCoverBmpPath(),
+                             xtc->calculateProgress(currentPage), getChapterTitleForStats(*xtc, currentPage),
+                             getChapterProgressForStats(*xtc, currentPage));
 
   // Trigger first update
   requestUpdate();
@@ -51,16 +109,22 @@ void XtcReaderActivity::onExit() {
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
+  READING_STATS.endSession();
   xtc.reset();
 }
 
 void XtcReaderActivity::loop() {
+  READING_STATS.tickActiveSession();
+
   // Enter chapter selection activity
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (xtc && xtc->hasChapters() && !xtc->getChapters().empty()) {
+      READING_STATS.noteActivity();
+      READING_STATS.saveToFile();
       startActivityForResult(
           std::make_unique<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, currentPage),
           [this](const ActivityResult& result) {
+            READING_STATS.resumeSession();
             if (!result.isCancelled) {
               currentPage = std::get<PageResult>(result.data).page;
             }
@@ -76,7 +140,7 @@ void XtcReaderActivity::loop() {
 
   // Short press BACK goes directly to home
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) && mappedInput.getHeldTime() < goHomeMs) {
-    onGoHome();
+    exitReaderToHomeOrStats(renderer, mappedInput, xtc ? xtc->getPath() : "");
     return;
   }
 
@@ -109,6 +173,7 @@ void XtcReaderActivity::loop() {
   const int skipAmount = skipPages ? 10 : 1;
 
   if (prevTriggered) {
+    READING_STATS.noteActivity();
     if (currentPage >= static_cast<uint32_t>(skipAmount)) {
       currentPage -= skipAmount;
     } else {
@@ -116,6 +181,7 @@ void XtcReaderActivity::loop() {
     }
     requestUpdate();
   } else if (nextTriggered) {
+    READING_STATS.noteActivity();
     currentPage += skipAmount;
     if (currentPage >= xtc->getPageCount()) {
       currentPage = xtc->getPageCount();  // Allow showing "End of book"
@@ -131,6 +197,9 @@ void XtcReaderActivity::render(RenderLock&&) {
 
   // Bounds check
   if (currentPage >= xtc->getPageCount()) {
+    const uint32_t lastPage = (xtc->getPageCount() > 0) ? (xtc->getPageCount() - 1) : 0;
+    READING_STATS.updateProgress(100, true, getChapterTitleForStats(*xtc, lastPage),
+                                 getChapterProgressForStats(*xtc, lastPage));
     // Show end of book screen
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
@@ -323,6 +392,8 @@ void XtcReaderActivity::renderPage() {
 }
 
 void XtcReaderActivity::saveProgress() const {
+  READING_STATS.updateProgress(xtc->calculateProgress(currentPage), currentPage + 1 >= xtc->getPageCount(),
+                               getChapterTitleForStats(*xtc, currentPage), getChapterProgressForStats(*xtc, currentPage));
   FsFile f;
   if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
     uint8_t data[4];

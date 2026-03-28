@@ -1,7 +1,6 @@
 #include "LyraTheme.h"
 
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -42,47 +41,6 @@ constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 24;
 constexpr int mainMenuColumns = 2;
 int coverWidth = 0;
-
-void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
-                         uint16_t percentage) {
-  // Top line
-  renderer.drawLine(x + 1, y, x + battWidth - 3, y);
-  // Bottom line
-  renderer.drawLine(x + 1, y + rectHeight - 1, x + battWidth - 3, y + rectHeight - 1);
-  // Left line
-  renderer.drawLine(x, y + 1, x, y + rectHeight - 2);
-  // Battery end
-  renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rectHeight - 2);
-  renderer.drawPixel(x + battWidth - 1, y + 3);
-  renderer.drawPixel(x + battWidth - 1, y + rectHeight - 4);
-  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rectHeight - 5);
-
-  const bool charging = gpio.isUsbConnected();
-
-  // Draw bars
-  if (percentage > 10 || charging) {
-    renderer.fillRect(x + 2, y + 2, 3, rectHeight - 4);
-  }
-  if (percentage > 40 || charging) {
-    renderer.fillRect(x + 6, y + 2, 3, rectHeight - 4);
-  }
-  if (percentage > 70) {
-    renderer.fillRect(x + 10, y + 2, 3, rectHeight - 4);
-  }
-
-  if (charging) {
-    const int boltX = x + 4;
-    const int boltY = y + 2;
-    renderer.drawLine(boltX + 4, boltY + 0, boltX + 5, boltY + 0, false);
-    renderer.drawLine(boltX + 3, boltY + 1, boltX + 4, boltY + 1, false);
-    renderer.drawLine(boltX + 2, boltY + 2, boltX + 5, boltY + 2, false);
-    renderer.drawLine(boltX + 3, boltY + 3, boltX + 4, boltY + 3, false);
-    renderer.drawLine(boltX + 2, boltY + 4, boltX + 3, boltY + 4, false);
-    renderer.drawLine(boltX + 1, boltY + 5, boltX + 4, boltY + 5, false);
-    renderer.drawLine(boltX + 2, boltY + 6, boltX + 3, boltY + 6, false);
-    renderer.drawLine(boltX + 1, boltY + 7, boltX + 2, boltY + 7, false);
-  }
-}
 
 const uint8_t* iconForName(UIIcon icon, int size) {
   if (size == 24) {
@@ -129,19 +87,45 @@ const uint8_t* iconForName(UIIcon icon, int size) {
 void LyraTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
+  const int y = rect.y + 6;
+  const int battWidth = LyraMetrics::values.batteryWidth;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
-    renderer.drawText(SMALL_FONT_ID, rect.x + batteryPercentSpacing + LyraMetrics::values.batteryWidth, rect.y,
-                      percentageText.c_str());
+    renderer.drawText(SMALL_FONT_ID, rect.x + batteryPercentSpacing + battWidth, rect.y, percentageText.c_str());
   }
 
-  drawLyraBatteryIcon(renderer, rect.x, rect.y + 6, LyraMetrics::values.batteryWidth, rect.height, percentage);
+  // Draw icon
+  const int x = rect.x;
+  // Top line
+  renderer.drawLine(x + 1, y, x + battWidth - 3, y);
+  // Bottom line
+  renderer.drawLine(x + 1, y + rect.height - 1, x + battWidth - 3, y + rect.height - 1);
+  // Left line
+  renderer.drawLine(x, y + 1, x, y + rect.height - 2);
+  // Battery end
+  renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rect.height - 2);
+  renderer.drawPixel(x + battWidth - 1, y + 3);
+  renderer.drawPixel(x + battWidth - 1, y + rect.height - 4);
+  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rect.height - 5);
+
+  // Draw bars
+  if (percentage > 10) {
+    renderer.fillRect(x + 2, y + 2, 3, rect.height - 4);
+  }
+  if (percentage > 40) {
+    renderer.fillRect(x + 6, y + 2, 3, rect.height - 4);
+  }
+  if (percentage > 70) {
+    renderer.fillRect(x + 10, y + 2, 3, rect.height - 4);
+  }
 }
 
 void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Right aligned: percentage on left, icon on right (UI headers)
   const uint16_t percentage = powerManager.getBatteryPercentage();
+  const int y = rect.y + 6;
+  const int battWidth = LyraMetrics::values.batteryWidth;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
@@ -153,7 +137,30 @@ void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
     renderer.drawText(SMALL_FONT_ID, rect.x - textWidth - batteryPercentSpacing, rect.y, percentageText.c_str());
   }
 
-  drawLyraBatteryIcon(renderer, rect.x, rect.y + 6, LyraMetrics::values.batteryWidth, rect.height, percentage);
+  // Draw icon at rect.x
+  const int x = rect.x;
+  // Top line
+  renderer.drawLine(x + 1, y, x + battWidth - 3, y);
+  // Bottom line
+  renderer.drawLine(x + 1, y + rect.height - 1, x + battWidth - 3, y + rect.height - 1);
+  // Left line
+  renderer.drawLine(x, y + 1, x, y + rect.height - 2);
+  // Battery end
+  renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rect.height - 2);
+  renderer.drawPixel(x + battWidth - 1, y + 3);
+  renderer.drawPixel(x + battWidth - 1, y + rect.height - 4);
+  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rect.height - 5);
+
+  // Draw bars
+  if (percentage > 10) {
+    renderer.fillRect(x + 2, y + 2, 3, rect.height - 4);
+  }
+  if (percentage > 40) {
+    renderer.fillRect(x + 6, y + 2, 3, rect.height - 4);
+  }
+  if (percentage > 70) {
+    renderer.fillRect(x + 10, y + 2, 3, rect.height - 4);
+  }
 }
 
 void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
@@ -509,12 +516,20 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
-                               const std::function<UIIcon(int index)>& rowIcon) const {
+                               const std::function<UIIcon(int index)>& rowIcon,
+                               const std::function<std::string(int index)>& buttonSubtitle,
+                               const std::function<bool(int index)>& showAccessory) const {
+  const int availableHeight = std::max(0, rect.height);
+  const int gap = LyraMetrics::values.menuSpacing;
+  const int rowHeight = buttonCount > 0
+                            ? std::min(LyraMetrics::values.menuRowHeight,
+                                       (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
+                            : LyraMetrics::values.menuRowHeight;
+
   for (int i = 0; i < buttonCount; ++i) {
     int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
     Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                         rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing), tileWidth,
-                         LyraMetrics::values.menuRowHeight};
+                         rect.y + i * (rowHeight + gap), tileWidth, rowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -525,19 +540,43 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     std::string labelStr = buttonLabel(i);
     const char* label = labelStr.c_str();
     int textX = tileRect.x + 16;
-    const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-    const int textY = tileRect.y + (LyraMetrics::values.menuRowHeight - lineHeight) / 2;
+    const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
 
     if (rowIcon != nullptr) {
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
       if (iconBitmap != nullptr) {
-        renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+        const int iconY = tileRect.y + (tileRect.height - mainMenuIconSize) / 2 + 1;
+        renderer.drawIcon(iconBitmap, textX, iconY, mainMenuIconSize, mainMenuIconSize);
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       }
     }
 
-    renderer.drawText(UI_12_FONT_ID, textX, textY, label, true);
+    const std::string subtitle = buttonSubtitle ? buttonSubtitle(i) : std::string();
+    const bool hasSubtitle = !subtitle.empty();
+    if (hasSubtitle) {
+      renderer.drawText(UI_12_FONT_ID, textX, tileRect.y + 8, label, true);
+
+      const int badgeWidth = showAccessory && showAccessory(i) ? 20 : 0;
+      const int subtitleMaxWidth = tileRect.width - (textX - tileRect.x) - 18 - badgeWidth;
+      std::string subtitleStr =
+          renderer.truncatedText(SMALL_FONT_ID, subtitle.c_str(), subtitleMaxWidth, EpdFontFamily::REGULAR);
+      const int subtitleY = tileRect.y + 36;
+      renderer.drawText(SMALL_FONT_ID, textX, subtitleY, subtitleStr.c_str(), true);
+
+      if (showAccessory && showAccessory(i)) {
+        const int badgeSize = 16;
+        const int subtitleWidth = renderer.getTextWidth(SMALL_FONT_ID, subtitleStr.c_str());
+        const int badgeX = std::min(tileRect.x + tileRect.width - badgeSize - 10, textX + subtitleWidth + 8);
+        const int badgeY = subtitleY - 1;
+        renderer.fillRect(badgeX, badgeY, badgeSize, badgeSize, true);
+        renderer.drawLine(badgeX + 3, badgeY + 8, badgeX + 6, badgeY + 11, 2, false);
+        renderer.drawLine(badgeX + 6, badgeY + 11, badgeX + 12, badgeY + 4, 2, false);
+      }
+    } else {
+      const int textY = tileRect.y + (rowHeight - titleLineHeight) / 2;
+      renderer.drawText(UI_12_FONT_ID, textX, textY, label, true);
+    }
   }
 }
 

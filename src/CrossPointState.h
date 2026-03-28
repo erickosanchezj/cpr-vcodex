@@ -12,12 +12,13 @@ class CrossPointState {
   uint8_t lastSleepImage = UINT8_MAX;  // UINT8_MAX = unset sentinel
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
+  uint32_t lastKnownValidTimestamp = 0;
   ~CrossPointState() = default;
 
   // Get singleton instance
   static CrossPointState& getInstance() { return instance; }
 
-  bool saveToFile() const;
+  bool saveToFile();
 
   bool loadFromFile();
 

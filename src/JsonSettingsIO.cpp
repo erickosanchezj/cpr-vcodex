@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
+#include <Stream.h>
 
 #include <cstring>
 #include <string>
@@ -11,9 +12,74 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
+#include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
+#include "util/TimeZoneRegistry.h"
+
+namespace {
+class HalFileStream : public Stream {
+ public:
+  explicit HalFileStream(HalFile& file) : file(file) {}
+
+  int available() override { return file.available() + (peekedByte >= 0 ? 1 : 0); }
+
+  int read() override {
+    if (peekedByte >= 0) {
+      const int byte = peekedByte;
+      peekedByte = -1;
+      return byte;
+    }
+    return file.read();
+  }
+
+  int peek() override {
+    if (peekedByte < 0) {
+      peekedByte = file.read();
+    }
+    return peekedByte;
+  }
+
+  void flush() override { file.flush(); }
+
+  size_t write(uint8_t value) override { return file.write(value); }
+
+ private:
+  HalFile& file;
+  int peekedByte = -1;
+};
+
+bool saveJsonDocumentToFile(const char* moduleName, const char* path, const JsonDocument& doc) {
+  HalFile file;
+  if (!Storage.openFileForWrite(moduleName, path, file)) {
+    LOG_ERR(moduleName, "Could not open JSON file for write: %s", path);
+    return false;
+  }
+
+  const size_t written = serializeJson(doc, file);
+  file.flush();
+  file.close();
+  return written > 0;
+}
+
+bool loadJsonDocumentFromFile(const char* moduleName, const char* path, JsonDocument& doc) {
+  HalFile file;
+  if (!Storage.openFileForRead(moduleName, path, file)) {
+    LOG_ERR(moduleName, "Could not open JSON file for read: %s", path);
+    return false;
+  }
+
+  HalFileStream stream(file);
+  auto error = deserializeJson(doc, stream);
+  file.close();
+  if (error) {
+    LOG_ERR(moduleName, "JSON parse error: %s", error.c_str());
+    return false;
+  }
+  return true;
+}
+}  // namespace
 
 // Convert legacy settings.
 void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
@@ -72,6 +138,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["lastSleepImage"] = s.lastSleepImage;
   doc["readerActivityLoadCount"] = s.readerActivityLoadCount;
   doc["lastSleepFromReader"] = s.lastSleepFromReader;
+  doc["lastKnownValidTimestamp"] = s.lastKnownValidTimestamp;
 
   String json;
   serializeJson(doc, json);
@@ -90,6 +157,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.lastSleepImage = doc["lastSleepImage"] | (uint8_t)UINT8_MAX;
   s.readerActivityLoadCount = doc["readerActivityLoadCount"] | (uint8_t)0;
   s.lastSleepFromReader = doc["lastSleepFromReader"] | false;
+  s.lastKnownValidTimestamp = doc["lastKnownValidTimestamp"] | static_cast<uint32_t>(0);
   return true;
 }
 
@@ -120,6 +188,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
+  doc["timeZonePreset"] = TimeZoneRegistry::clampPresetIndex(s.timeZonePreset);
+  doc["sleepDirectory"] = s.sleepDirectory;
+  doc["sleepImageOrder"] = s.sleepImageOrder;
 
   String json;
   serializeJson(doc, json);
@@ -199,6 +270,17 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateFrontButtonMapping(s);
+  s.timeZonePreset =
+      TimeZoneRegistry::clampPresetIndex(doc["timeZonePreset"] | TimeZoneRegistry::DEFAULT_TIME_ZONE_INDEX);
+
+  {
+    const std::string sleepDirectory = doc["sleepDirectory"] | std::string("");
+    strncpy(s.sleepDirectory, sleepDirectory.c_str(), sizeof(s.sleepDirectory) - 1);
+    s.sleepDirectory[sizeof(s.sleepDirectory) - 1] = '\0';
+  }
+  s.sleepImageOrder = clamp(doc["sleepImageOrder"] | (uint8_t)CrossPointSettings::SLEEP_IMAGE_SHUFFLE,
+                            CrossPointSettings::SLEEP_IMAGE_ORDER_COUNT,
+                            CrossPointSettings::SLEEP_IMAGE_SHUFFLE);
 
   LOG_DBG("CPS", "Settings loaded from file");
 
@@ -304,9 +386,7 @@ bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* 
     obj["coverBmpPath"] = book.coverBmpPath;
   }
 
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
+  return saveJsonDocumentToFile("RBS", path, doc);
 }
 
 bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) {
@@ -330,5 +410,209 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
   }
 
   LOG_DBG("RBS", "Recent books loaded from file (%d entries)", store.getCount());
+  return true;
+}
+
+bool JsonSettingsIO::loadRecentBooksFromFile(RecentBooksStore& store, const char* path) {
+  JsonDocument doc;
+  if (!loadJsonDocumentFromFile("RBS", path, doc)) {
+    return false;
+  }
+
+  store.recentBooks.clear();
+  JsonArray arr = doc["books"].as<JsonArray>();
+  for (JsonObject obj : arr) {
+    if (store.getCount() >= 10) break;
+    RecentBook book;
+    book.path = obj["path"] | std::string("");
+    book.title = obj["title"] | std::string("");
+    book.author = obj["author"] | std::string("");
+    book.coverBmpPath = obj["coverBmpPath"] | std::string("");
+    store.recentBooks.push_back(book);
+  }
+
+  LOG_DBG("RBS", "Recent books loaded from file (%d entries)", store.getCount());
+  return true;
+}
+
+// ---- ReadingStatsStore ----
+
+bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char* path) {
+  JsonDocument doc;
+  doc["formatVersion"] = 2;
+
+  JsonArray days = doc["readingDays"].to<JsonArray>();
+  for (const auto& day : store.getReadingDays()) {
+    JsonObject dayObj = days.add<JsonObject>();
+    dayObj["dayOrdinal"] = day.dayOrdinal;
+    dayObj["readingMs"] = day.readingMs;
+  }
+
+  JsonArray legacyDays = doc["legacyReadingDays"].to<JsonArray>();
+  for (const auto& day : store.legacyReadingDays) {
+    JsonObject dayObj = legacyDays.add<JsonObject>();
+    dayObj["dayOrdinal"] = day.dayOrdinal;
+    dayObj["readingMs"] = day.readingMs;
+  }
+
+  JsonArray books = doc["books"].to<JsonArray>();
+  for (const auto& book : store.getBooks()) {
+    JsonObject obj = books.add<JsonObject>();
+    obj["path"] = book.path;
+    obj["title"] = book.title;
+    obj["author"] = book.author;
+    obj["coverBmpPath"] = book.coverBmpPath;
+    obj["chapterTitle"] = book.chapterTitle;
+    obj["totalReadingMs"] = book.totalReadingMs;
+    obj["sessions"] = book.sessions;
+    obj["lastSessionMs"] = book.lastSessionMs;
+    obj["firstReadAt"] = book.firstReadAt;
+    obj["lastReadAt"] = book.lastReadAt;
+    obj["lastProgressPercent"] = book.lastProgressPercent;
+    obj["chapterProgressPercent"] = book.chapterProgressPercent;
+    obj["completed"] = book.completed;
+
+    JsonArray bookDays = obj["readingDays"].to<JsonArray>();
+    for (const auto& day : book.readingDays) {
+      JsonObject dayObj = bookDays.add<JsonObject>();
+      dayObj["dayOrdinal"] = day.dayOrdinal;
+      dayObj["readingMs"] = day.readingMs;
+    }
+  }
+
+  return saveJsonDocumentToFile("RST", path, doc);
+}
+
+bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json) {
+  JsonDocument doc;
+  auto error = deserializeJson(doc, json);
+  if (error) {
+    LOG_ERR("RST", "JSON parse error: %s", error.c_str());
+    return false;
+  }
+
+  store.books.clear();
+  store.legacyReadingDays.clear();
+  store.readingDays.clear();
+
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
+
+  auto appendReadingDays = [](std::vector<ReadingDayStats>& destination, JsonArray source) {
+    for (JsonVariant value : source) {
+      ReadingDayStats day;
+      if (value.is<JsonObject>()) {
+        JsonObject obj = value.as<JsonObject>();
+        day.dayOrdinal = obj["dayOrdinal"] | static_cast<uint32_t>(0);
+        day.readingMs = obj["readingMs"] | static_cast<uint64_t>(0);
+      } else {
+        day.dayOrdinal = value | static_cast<uint32_t>(0);
+        day.readingMs = 0;
+      }
+      if (day.dayOrdinal != 0) {
+        destination.push_back(day);
+      }
+    }
+  };
+
+  appendReadingDays(store.readingDays, doc["readingDays"].as<JsonArray>());
+  if (formatVersion >= 2) {
+    appendReadingDays(store.legacyReadingDays, doc["legacyReadingDays"].as<JsonArray>());
+  } else {
+    store.legacyReadingDays = store.readingDays;
+  }
+
+  JsonArray books = doc["books"].as<JsonArray>();
+  for (JsonObject obj : books) {
+    ReadingBookStats book;
+    book.path = obj["path"] | std::string("");
+    if (book.path.empty()) {
+      continue;
+    }
+    book.title = obj["title"] | std::string("");
+    book.author = obj["author"] | std::string("");
+    book.coverBmpPath = obj["coverBmpPath"] | std::string("");
+    book.chapterTitle = obj["chapterTitle"] | std::string("");
+    book.totalReadingMs = obj["totalReadingMs"] | static_cast<uint64_t>(0);
+    book.sessions = obj["sessions"] | static_cast<uint32_t>(0);
+    book.lastSessionMs = obj["lastSessionMs"] | static_cast<uint32_t>(0);
+    book.firstReadAt = obj["firstReadAt"] | static_cast<uint32_t>(0);
+    book.lastReadAt = obj["lastReadAt"] | static_cast<uint32_t>(0);
+    book.lastProgressPercent = obj["lastProgressPercent"] | static_cast<uint8_t>(0);
+    book.chapterProgressPercent = obj["chapterProgressPercent"] | static_cast<uint8_t>(0);
+    book.completed = obj["completed"] | false;
+    if (formatVersion >= 2) {
+      appendReadingDays(book.readingDays, obj["readingDays"].as<JsonArray>());
+    }
+    store.books.push_back(std::move(book));
+  }
+
+  store.rebuildAggregatedReadingDays();
+  LOG_DBG("RST", "Reading stats loaded from file (%d books)", static_cast<int>(store.books.size()));
+  return true;
+}
+
+bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const char* path) {
+  JsonDocument doc;
+  if (!loadJsonDocumentFromFile("RST", path, doc)) {
+    return false;
+  }
+
+  store.books.clear();
+  store.legacyReadingDays.clear();
+  store.readingDays.clear();
+
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
+
+  auto appendReadingDays = [](std::vector<ReadingDayStats>& destination, JsonArray source) {
+    for (JsonVariant value : source) {
+      ReadingDayStats day;
+      if (value.is<JsonObject>()) {
+        JsonObject obj = value.as<JsonObject>();
+        day.dayOrdinal = obj["dayOrdinal"] | static_cast<uint32_t>(0);
+        day.readingMs = obj["readingMs"] | static_cast<uint64_t>(0);
+      } else {
+        day.dayOrdinal = value | static_cast<uint32_t>(0);
+        day.readingMs = 0;
+      }
+      if (day.dayOrdinal != 0) {
+        destination.push_back(day);
+      }
+    }
+  };
+
+  appendReadingDays(store.readingDays, doc["readingDays"].as<JsonArray>());
+  if (formatVersion >= 2) {
+    appendReadingDays(store.legacyReadingDays, doc["legacyReadingDays"].as<JsonArray>());
+  } else {
+    store.legacyReadingDays = store.readingDays;
+  }
+
+  JsonArray books = doc["books"].as<JsonArray>();
+  for (JsonObject obj : books) {
+    ReadingBookStats book;
+    book.path = obj["path"] | std::string("");
+    if (book.path.empty()) {
+      continue;
+    }
+    book.title = obj["title"] | std::string("");
+    book.author = obj["author"] | std::string("");
+    book.coverBmpPath = obj["coverBmpPath"] | std::string("");
+    book.chapterTitle = obj["chapterTitle"] | std::string("");
+    book.totalReadingMs = obj["totalReadingMs"] | static_cast<uint64_t>(0);
+    book.sessions = obj["sessions"] | static_cast<uint32_t>(0);
+    book.lastSessionMs = obj["lastSessionMs"] | static_cast<uint32_t>(0);
+    book.firstReadAt = obj["firstReadAt"] | static_cast<uint32_t>(0);
+    book.lastReadAt = obj["lastReadAt"] | static_cast<uint32_t>(0);
+    book.lastProgressPercent = obj["lastProgressPercent"] | static_cast<uint8_t>(0);
+    book.chapterProgressPercent = obj["chapterProgressPercent"] | static_cast<uint8_t>(0);
+    book.completed = obj["completed"] | false;
+    if (formatVersion >= 2) {
+      appendReadingDays(book.readingDays, obj["readingDays"].as<JsonArray>());
+    }
+    store.books.push_back(std::move(book));
+  }
+
+  store.rebuildAggregatedReadingDays();
+  LOG_DBG("RST", "Reading stats loaded from file (%d books)", static_cast<int>(store.books.size()));
   return true;
 }

@@ -1,7 +1,12 @@
 #include "SettingsActivity.h"
 
+#include <Arduino.h>
+#include <HalStorage.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
+
+#include <algorithm>
+#include <ctime>
 
 #include "ButtonRemapActivity.h"
 #include "CalibreSettingsActivity.h"
@@ -11,14 +16,107 @@
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
+#include "ReadingStatsStore.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
+#include "TimeZoneSelectActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/TimeUtils.h"
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
-                                                              StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
+                                                              StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM,
+                                                              StrId::STR_APPS};
+
+namespace {
+std::string getReadingStatsExportPath() {
+  constexpr char defaultPath[] = "/exports/reading_stats_export.json";
+
+  const time_t now = time(nullptr);
+  if (!TimeUtils::isClockValid(static_cast<uint32_t>(now))) {
+    return defaultPath;
+  }
+
+  tm localTime = {};
+  if (localtime_r(&now, &localTime) == nullptr) {
+    return defaultPath;
+  }
+
+  char buffer[96];
+  snprintf(buffer, sizeof(buffer), "/exports/reading_stats_%04d%02d%02d_%02d%02d%02d.json", localTime.tm_year + 1900,
+           localTime.tm_mon + 1, localTime.tm_mday, localTime.tm_hour, localTime.tm_min, localTime.tm_sec);
+  return buffer;
+}
+
+bool startsWith(const std::string& value, const std::string& prefix) {
+  return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool endsWith(const std::string& value, const std::string& suffix) {
+  return value.size() >= suffix.size() &&
+         value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+std::string getLatestReadingStatsImportPath() {
+  auto exportsDir = Storage.open("/exports");
+  if (!exportsDir || !exportsDir.isDirectory()) {
+    if (exportsDir) {
+      exportsDir.close();
+    }
+    return "";
+  }
+
+  exportsDir.rewindDirectory();
+
+  std::string latestTimestamped;
+  std::string fallbackPath;
+  char name[256];
+  for (auto entry = exportsDir.openNextFile(); entry; entry = exportsDir.openNextFile()) {
+    if (entry.isDirectory()) {
+      entry.close();
+      continue;
+    }
+
+    entry.getName(name, sizeof(name));
+    const std::string fileName{name};
+    if (!startsWith(fileName, "reading_stats") || !endsWith(fileName, ".json")) {
+      entry.close();
+      continue;
+    }
+
+    const std::string fullPath = "/exports/" + fileName;
+    if (startsWith(fileName, "reading_stats_20")) {
+      latestTimestamped = std::max(latestTimestamped, fullPath);
+    } else if (fallbackPath.empty()) {
+      fallbackPath = fullPath;
+    }
+    entry.close();
+  }
+  exportsDir.close();
+
+  return latestTimestamped.empty() ? fallbackPath : latestTimestamped;
+}
+
+std::string getSettingValueText(const SettingInfo& setting) {
+  if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+    const bool value = SETTINGS.*(setting.valuePtr);
+    return value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+  }
+  if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+    const uint8_t value = SETTINGS.*(setting.valuePtr);
+    return I18N.get(setting.enumValues[value]);
+  }
+  if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+    return std::to_string(SETTINGS.*(setting.valuePtr));
+  }
+  if (setting.type == SettingType::ACTION && setting.action == SettingAction::TimeZone) {
+    return TimeUtils::getCurrentTimeZoneLabel();
+  }
+  return "";
+}
+}  // namespace
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
@@ -28,6 +126,7 @@ void SettingsActivity::onEnter() {
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
+  appSettings.clear();
 
   for (const auto& setting : getSettingsList()) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
@@ -39,6 +138,8 @@ void SettingsActivity::onEnter() {
       controlsSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
       systemSettings.push_back(setting);
+    } else if (setting.category == StrId::STR_APPS) {
+      continue;
     }
     // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
   }
@@ -53,14 +154,25 @@ void SettingsActivity::onEnter() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  appSettings.push_back(SettingInfo::Section(StrId::STR_DAY_SYNC_SECTION));
+  appSettings.push_back(
+      SettingInfo::Toggle(StrId::STR_DISPLAY_DAY, &CrossPointSettings::displayDay, "displayDay", StrId::STR_APPS));
+  appSettings.push_back(SettingInfo::Toggle(StrId::STR_AUTO_SYNC_DAY, &CrossPointSettings::autoSyncDay, "autoSyncDay",
+                                            StrId::STR_APPS));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_TIME_ZONE, SettingAction::TimeZone));
+  appSettings.push_back(SettingInfo::Section(StrId::STR_READING_STATS));
+  appSettings.push_back(SettingInfo::Toggle(StrId::STR_SHOW_AFTER_READING, &CrossPointSettings::showStatsAfterReading,
+                                            "showStatsAfterReading", StrId::STR_APPS));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_RESET, SettingAction::ResetReadingStats));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_EXPORT, SettingAction::ExportReadingStats));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_IMPORT, SettingAction::ImportReadingStats));
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
   selectedSettingIndex = 0;
 
   // Initialize with first category (Display)
-  currentSettings = &displaySettings;
-  settingsCount = static_cast<int>(displaySettings.size());
+  enterCategory(0);
 
   // Trigger first update
   requestUpdate();
@@ -70,6 +182,78 @@ void SettingsActivity::onExit() {
   Activity::onExit();
 
   UITheme::getInstance().reload();  // Re-apply theme in case it was changed
+}
+
+void SettingsActivity::enterCategory(const int categoryIndex) {
+  selectedCategoryIndex = categoryIndex;
+  switch (selectedCategoryIndex) {
+    case 0:
+      currentSettings = &displaySettings;
+      break;
+    case 1:
+      currentSettings = &readerSettings;
+      break;
+    case 2:
+      currentSettings = &controlsSettings;
+      break;
+    case 3:
+      currentSettings = &systemSettings;
+      break;
+    default:
+      currentSettings = &appSettings;
+      break;
+  }
+  settingsCount = static_cast<int>(currentSettings->size());
+}
+
+bool SettingsActivity::isSelectableSetting(const int settingIndex) const {
+  if (!currentSettings || settingIndex < 0 || settingIndex >= settingsCount) {
+    return false;
+  }
+  return (*currentSettings)[settingIndex].type != SettingType::SECTION;
+}
+
+int SettingsActivity::firstSelectableSettingIndex() const {
+  for (int index = 0; index < settingsCount; ++index) {
+    if (isSelectableSetting(index)) {
+      return index + 1;
+    }
+  }
+  return 0;
+}
+
+int SettingsActivity::stepSettingSelection(const int direction) const {
+  const int totalSlots = settingsCount + 1;
+  if (totalSlots <= 1) {
+    return 0;
+  }
+
+  int candidate = selectedSettingIndex;
+  for (int guard = 0; guard < totalSlots; ++guard) {
+    candidate = direction > 0 ? ButtonNavigator::nextIndex(candidate, totalSlots)
+                              : ButtonNavigator::previousIndex(candidate, totalSlots);
+    if (candidate == 0 || isSelectableSetting(candidate - 1)) {
+      return candidate;
+    }
+  }
+
+  return selectedSettingIndex;
+}
+
+void SettingsActivity::showTransientPopup(const char* message, const int progress, const unsigned long delayMs) {
+  requestUpdateAndWait();
+
+  {
+    RenderLock lock(*this);
+    const Rect popupRect = GUI.drawPopup(renderer, message);
+    if (progress >= 0) {
+      GUI.fillPopupProgress(renderer, popupRect, progress);
+    }
+  }
+
+  if (delayMs > 0) {
+    delay(delayMs);
+  }
 }
 
 void SettingsActivity::loop() {
@@ -101,12 +285,12 @@ void SettingsActivity::loop() {
 
   // Handle navigation
   buttonNavigator.onNextRelease([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+    selectedSettingIndex = stepSettingSelection(1);
     requestUpdate();
   });
 
   buttonNavigator.onPreviousRelease([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
+    selectedSettingIndex = stepSettingSelection(-1);
     requestUpdate();
   });
 
@@ -123,22 +307,8 @@ void SettingsActivity::loop() {
   });
 
   if (hasChangedCategory) {
-    selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
-    switch (selectedCategoryIndex) {
-      case 0:
-        currentSettings = &displaySettings;
-        break;
-      case 1:
-        currentSettings = &readerSettings;
-        break;
-      case 2:
-        currentSettings = &controlsSettings;
-        break;
-      case 3:
-        currentSettings = &systemSettings;
-        break;
-    }
-    settingsCount = static_cast<int>(currentSettings->size());
+    enterCategory(selectedCategoryIndex);
+    selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : firstSelectableSettingIndex();
   }
 }
 
@@ -192,6 +362,50 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::TimeZone:
+        startActivityForResult(std::make_unique<TimeZoneSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ResetReadingStats:
+        startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                                      tr(STR_RESET_READING_STATS_CONFIRM), ""),
+                               [this](const ActivityResult& result) {
+                                 if (!result.isCancelled) {
+                                   RenderLock lock(*this);
+                                   READING_STATS.reset();
+                                 }
+                                 SETTINGS.saveToFile();
+                                 requestUpdate(true);
+                               });
+        break;
+      case SettingAction::ExportReadingStats: {
+        showTransientPopup(tr(STR_EXPORTING), 20, 120);
+        Storage.mkdir("/exports");
+        const bool exported = READING_STATS.exportToFile(getReadingStatsExportPath());
+        showTransientPopup(exported ? tr(STR_EXPORT_DONE) : tr(STR_EXPORT_FAILED), exported ? 100 : -1,
+                           exported ? 350 : 700);
+        SETTINGS.saveToFile();
+        requestUpdate(true);
+        break;
+      }
+      case SettingAction::ImportReadingStats:
+        startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                                      tr(STR_IMPORT_READING_STATS_CONFIRM), ""),
+                               [this](const ActivityResult& result) {
+                                 if (!result.isCancelled) {
+                                   const std::string importPath = getLatestReadingStatsImportPath();
+                                   if (importPath.empty()) {
+                                     showTransientPopup(tr(STR_NO_READING_STATS_EXPORT), -1, 700);
+                                   } else {
+                                     showTransientPopup(tr(STR_IMPORTING), 20, 120);
+                                     const bool imported = READING_STATS.importFromFile(importPath);
+                                     showTransientPopup(imported ? tr(STR_IMPORT_DONE) : tr(STR_IMPORT_FAILED),
+                                                        imported ? 100 : -1, imported ? 350 : 700);
+                                   }
+                                 }
+                                 SETTINGS.saveToFile();
+                                 requestUpdate(true);
+                               });
+        break;
       case SettingAction::None:
         // Do nothing
         break;
@@ -202,6 +416,57 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   SETTINGS.saveToFile();
+}
+
+void SettingsActivity::renderAppSettingsList(const Rect& rect) const {
+  if (!currentSettings) {
+    return;
+  }
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto& settings = *currentSettings;
+  const int rowHeight = metrics.listRowHeight;
+  const int sectionHeight = 34;
+  const int sidePadding = metrics.contentSidePadding;
+  const int rowX = rect.x + sidePadding;
+  const int rowWidth = rect.width - sidePadding * 2 - 8;
+  int currentY = rect.y;
+
+  for (int index = 0; index < settingsCount; ++index) {
+    const auto& setting = settings[index];
+    if (setting.type == SettingType::SECTION) {
+      const char* label = I18N.get(setting.nameId);
+      renderer.drawText(UI_10_FONT_ID, rowX, currentY + 2, label, true, EpdFontFamily::BOLD);
+      renderer.drawLine(rowX, currentY + sectionHeight - 3, rowX + rowWidth, currentY + sectionHeight - 3);
+      currentY += sectionHeight;
+      continue;
+    }
+
+    const bool selected = selectedSettingIndex == index + 1;
+    const Rect rowRect{rowX, currentY, rowWidth, rowHeight - 4};
+    if (selected) {
+      renderer.fillRectDither(rowRect.x, rowRect.y, rowRect.width, rowRect.height, Color::LightGray);
+      renderer.drawRect(rowRect.x, rowRect.y, rowRect.width, rowRect.height);
+    }
+
+    const std::string valueText = getSettingValueText(setting);
+    const int valueWidth =
+        valueText.empty() ? 0 : renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str(), EpdFontFamily::REGULAR);
+    const int leftPadding = 12;
+    const int rightPadding = 12;
+    const int labelWidth = rowRect.width - leftPadding - rightPadding - (valueWidth > 0 ? valueWidth + 12 : 0);
+    const std::string titleText =
+        renderer.truncatedText(UI_10_FONT_ID, I18N.get(setting.nameId), labelWidth, EpdFontFamily::REGULAR);
+    renderer.drawText(UI_10_FONT_ID, rowRect.x + leftPadding, rowRect.y + 9, titleText.c_str(), true,
+                      EpdFontFamily::REGULAR);
+
+    if (!valueText.empty()) {
+      renderer.drawText(UI_10_FONT_ID, rowRect.x + rowRect.width - rightPadding - valueWidth, rowRect.y + 9,
+                        valueText.c_str(), true, EpdFontFamily::REGULAR);
+    }
+
+    currentY += rowHeight;
+  }
 }
 
 void SettingsActivity::render(RenderLock&&) {
@@ -223,34 +488,30 @@ void SettingsActivity::render(RenderLock&&) {
   GUI.drawTabBar(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight}, tabs,
                  selectedSettingIndex == 0);
 
-  const auto& settings = *currentSettings;
-  GUI.drawList(
-      renderer,
-      Rect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.buttonHintsHeight +
-                         metrics.verticalSpacing * 2)},
-      settingsCount, selectedSettingIndex - 1,
-      [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
-      [&settings](int i) {
-        const auto& setting = settings[i];
-        std::string valueText = "";
-        if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-          const bool value = SETTINGS.*(setting.valuePtr);
-          valueText = value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-        } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-          const uint8_t value = SETTINGS.*(setting.valuePtr);
-          valueText = I18N.get(setting.enumValues[value]);
-        } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-        }
-        return valueText;
-      },
-      true);
+  const Rect listRect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing,
+                      pageWidth,
+                      pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
+                                    metrics.buttonHintsHeight + metrics.verticalSpacing * 2)};
+
+  if (selectedCategoryIndex == 4) {
+    renderAppSettingsList(listRect);
+  } else {
+    const auto& settings = *currentSettings;
+    GUI.drawList(renderer, listRect, settingsCount, selectedSettingIndex - 1,
+                 [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
+                 [&settings](int i) { return getSettingValueText(settings[i]); }, true);
+  }
 
   // Draw help text
-  const auto confirmLabel = (selectedSettingIndex == 0)
-                                ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-                                : tr(STR_TOGGLE);
+  const char* confirmLabel = nullptr;
+  if (selectedSettingIndex == 0) {
+    confirmLabel = I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount]);
+  } else {
+    const auto& selectedSetting = (*currentSettings)[selectedSettingIndex - 1];
+    confirmLabel =
+        (selectedSetting.type == SettingType::ACTION || selectedSetting.type == SettingType::SECTION) ? tr(STR_SELECT)
+                                                                                                       : tr(STR_TOGGLE);
+  }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

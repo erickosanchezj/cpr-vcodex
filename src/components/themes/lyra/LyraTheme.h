@@ -59,7 +59,9 @@ class LyraTheme : public BaseTheme {
   void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
-                      const std::function<UIIcon(int index)>& rowIcon) const override;
+                      const std::function<UIIcon(int index)>& rowIcon,
+                      const std::function<std::string(int index)>& buttonSubtitle = nullptr,
+                      const std::function<bool(int index)>& showAccessory = nullptr) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            const int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            std::function<bool()> storeCoverBuffer) const override;
@@ -68,5 +70,4 @@ class LyraTheme : public BaseTheme {
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const override;
   void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth) const override;
   void drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label, const bool isSelected) const override;
-  bool showsFileIcons() const override { return true; }
 };

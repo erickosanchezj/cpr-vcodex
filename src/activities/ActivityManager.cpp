@@ -2,6 +2,7 @@
 
 #include <HalPowerManager.h>
 
+#include "apps/AppsActivity.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
@@ -169,6 +170,8 @@ void ActivityManager::goToFileTransfer() {
 
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
 
+void ActivityManager::goToApps() { replaceActivity(std::make_unique<AppsActivity>(renderer, mappedInput)); }
+
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
 }
@@ -183,6 +186,11 @@ void ActivityManager::goToBrowser() {
 
 void ActivityManager::goToReader(std::string path) {
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
+}
+
+void ActivityManager::goToEpubBookmark(std::string path, const int spineIndex, const uint32_t page) {
+  replaceActivity(std::make_unique<ReaderActivity>(
+      renderer, mappedInput, std::move(path), ReaderActivity::EpubBookmarkLaunch{true, spineIndex, page}));
 }
 
 void ActivityManager::goToSleep() {

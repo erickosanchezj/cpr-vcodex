@@ -7,14 +7,7 @@ void HalGPIO::begin() {
   pinMode(UART0_RXD, INPUT);
 }
 
-void HalGPIO::update() {
-  inputMgr.update();
-  const bool connected = isUsbConnected();
-  usbStateChanged = (connected != lastUsbConnected);
-  lastUsbConnected = connected;
-}
-
-bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
+void HalGPIO::update() { inputMgr.update(); }
 
 bool HalGPIO::isPressed(uint8_t buttonIndex) const { return inputMgr.isPressed(buttonIndex); }
 

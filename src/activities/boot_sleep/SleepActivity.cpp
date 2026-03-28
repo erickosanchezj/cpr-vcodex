@@ -13,6 +13,15 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
+#include "util/SleepImageUtils.h"
+#include "util/SleepScreenCache.h"
+
+namespace {
+bool canUseSleepCache(const Bitmap& bitmap) {
+  return !(bitmap.hasGreyscale() &&
+           SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
+}
+}
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
@@ -32,20 +41,10 @@ void SleepActivity::onEnter() {
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
-  // Check if we have a /.sleep (preferred) or /sleep directory
-  const char* sleepDir = nullptr;
-  auto dir = Storage.open("/.sleep");
-  if (dir && dir.isDirectory()) {
-    sleepDir = "/.sleep";
-  } else {
-    if (dir) dir.close();
-    dir = Storage.open("/sleep");
-    if (dir && dir.isDirectory()) {
-      sleepDir = "/sleep";
-    }
-  }
+  const std::string sleepDir = SleepImageUtils::resolveConfiguredSleepDirectory();
+  auto dir = sleepDir.empty() ? FsFile{} : Storage.open(sleepDir.c_str());
 
-  if (sleepDir) {
+  if (dir && dir.isDirectory()) {
     std::vector<std::string> files;
     char name[500];
     // collect all valid BMP files
@@ -77,22 +76,35 @@ void SleepActivity::renderCustomSleepScreen() const {
     }
     const auto numFiles = files.size();
     if (numFiles > 0) {
-      // Generate a random number between 1 and numFiles
-      auto randomFileIndex = random(numFiles);
-      // If we picked the same image as last time, reroll
-      while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && randomFileIndex == APP_STATE.lastSleepImage) {
-        randomFileIndex = random(numFiles);
+      size_t fileIndex = 0;
+      if (SETTINGS.sleepImageOrder == CrossPointSettings::SLEEP_IMAGE_SEQUENTIAL) {
+        if (APP_STATE.lastSleepImage == UINT8_MAX || APP_STATE.lastSleepImage >= numFiles - 1) {
+          fileIndex = 0;
+        } else {
+          fileIndex = APP_STATE.lastSleepImage + 1;
+        }
+      } else {
+        fileIndex = random(numFiles);
+        while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && fileIndex == APP_STATE.lastSleepImage) {
+          fileIndex = random(numFiles);
+        }
       }
-      APP_STATE.lastSleepImage = randomFileIndex;
+
+      APP_STATE.lastSleepImage = static_cast<uint8_t>(fileIndex);
       APP_STATE.saveToFile();
-      const auto filename = std::string(sleepDir) + "/" + files[randomFileIndex];
+      const auto filename = sleepDir + "/" + files[fileIndex];
       FsFile file;
+      if (SleepScreenCache::load(renderer, filename)) {
+        renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+        dir.close();
+        return;
+      }
       if (Storage.openFileForRead("SLP", filename, file)) {
-        LOG_DBG("SLP", "Randomly loading: %s/%s", sleepDir, files[randomFileIndex].c_str());
+        LOG_DBG("SLP", "Loading sleep image: %s/%s", sleepDir.c_str(), files[fileIndex].c_str());
         delay(100);
         Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          renderBitmapSleepScreen(bitmap);
+          renderBitmapSleepScreen(bitmap, filename);
           file.close();
           dir.close();
           return;
@@ -110,7 +122,12 @@ void SleepActivity::renderCustomSleepScreen() const {
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Loading: /sleep.bmp");
-      renderBitmapSleepScreen(bitmap);
+      if (SleepScreenCache::load(renderer, "/sleep.bmp")) {
+        renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+        file.close();
+        return;
+      }
+      renderBitmapSleepScreen(bitmap, "/sleep.bmp");
       file.close();
       return;
     }
@@ -126,7 +143,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
 
   renderer.clearScreen();
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSPOINT), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, "CrossPoint vCodex", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
 
   // Make sleep screen dark unless light is selected in settings
@@ -134,10 +151,10 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
+void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::string& sourcePath) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -189,7 +206,11 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  if (!sourcePath.empty() && canUseSleepCache(bitmap)) {
+    SleepScreenCache::save(renderer, sourcePath);
+  }
+
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 
   if (hasGreyscale) {
     bitmap.rewindToData();
@@ -276,11 +297,15 @@ void SleepActivity::renderCoverSleepScreen() const {
   }
 
   FsFile file;
+  if (SleepScreenCache::load(renderer, coverBmpPath)) {
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+    return;
+  }
   if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
     Bitmap bitmap(file);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      renderBitmapSleepScreen(bitmap);
+      renderBitmapSleepScreen(bitmap, coverBmpPath);
       file.close();
       return;
     }
@@ -292,5 +317,5 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
 }

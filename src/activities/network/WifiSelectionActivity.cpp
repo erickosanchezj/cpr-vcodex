@@ -5,13 +5,18 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <map>
+#include <ctime>
 
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/TimeUtils.h"
 
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -252,6 +257,16 @@ void WifiSelectionActivity::checkConnectionStatus() {
     {
       RenderLock lock(*this);
       WIFI_STORE.setLastConnectedSsid(selectedSSID);
+    }
+
+    if (SETTINGS.autoSyncDay) {
+      LOG_DBG("WIFI", "Auto-syncing date/time after Wi-Fi connection");
+      TimeUtils::syncTimeWithNtp();
+      const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
+      if (currentValidTimestamp > 0) {
+        APP_STATE.lastKnownValidTimestamp = std::max(APP_STATE.lastKnownValidTimestamp, currentValidTimestamp);
+        APP_STATE.saveToFile();
+      }
     }
 
     // If we entered a new password, ask if user wants to save it

@@ -25,6 +25,9 @@ class HomeActivity final : public Activity {
   void onRecentsOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
+  void onAppsOpen();
+  void onReadingStatsOpen();
+  void onSyncDayOpen();
   void onOpdsBrowserOpen();
 
   int getMenuItemCount() const;

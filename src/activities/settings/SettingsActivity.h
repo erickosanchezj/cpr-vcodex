@@ -9,7 +9,9 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
+struct Rect;
+
+enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING, SECTION };
 
 enum class SettingAction {
   None,
@@ -21,6 +23,10 @@ enum class SettingAction {
   ClearCache,
   CheckForUpdates,
   Language,
+  TimeZone,
+  ResetReadingStats,
+  ExportReadingStats,
+  ImportReadingStats,
 };
 
 struct SettingInfo {
@@ -84,6 +90,13 @@ struct SettingInfo {
     s.nameId = nameId;
     s.type = SettingType::ACTION;
     s.action = action;
+    return s;
+  }
+
+  static SettingInfo Section(StrId nameId) {
+    SettingInfo s;
+    s.nameId = nameId;
+    s.type = SettingType::SECTION;
     return s;
   }
 
@@ -151,12 +164,18 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> readerSettings;
   std::vector<SettingInfo> controlsSettings;
   std::vector<SettingInfo> systemSettings;
+  std::vector<SettingInfo> appSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
-  static constexpr int categoryCount = 4;
+  static constexpr int categoryCount = 5;
   static const StrId categoryNames[categoryCount];
 
   void enterCategory(int categoryIndex);
+  bool isSelectableSetting(int settingIndex) const;
+  int firstSelectableSettingIndex() const;
+  int stepSettingSelection(int direction) const;
+  void renderAppSettingsList(const Rect& rect) const;
+  void showTransientPopup(const char* message, int progress = -1, unsigned long delayMs = 0);
   void toggleCurrentSetting();
 
  public:

@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -79,10 +80,12 @@ class ActivityManager {
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer();
   void goToSettings();
+  void goToApps();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();
   void goToReader(std::string path);
+  void goToEpubBookmark(std::string path, int spineIndex, uint32_t page);
   void goToSleep();
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);

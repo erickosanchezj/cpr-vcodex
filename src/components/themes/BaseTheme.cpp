@@ -5,7 +5,6 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -13,6 +12,7 @@
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BmpMetadataCache.h"
 
 // Internal constants
 namespace {
@@ -35,40 +35,13 @@ void drawBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, i
   renderer.drawPixel(x + battWidth - 1, y + rectHeight - 4);
   renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rectHeight - 5);
 
-  const bool charging = gpio.isUsbConnected();
-
   // The +1 is to round up, so that we always fill at least one pixel
-  const int maxFillWidth = battWidth - 5;
-  const int fillHeight = rectHeight - 4;
-  if (maxFillWidth <= 0 || fillHeight <= 0) {
-    return;
-  }
-  int filledWidth = percentage * maxFillWidth / 100 + 1;
-  if (filledWidth > maxFillWidth) {
-    filledWidth = maxFillWidth;
+  int filledWidth = percentage * (battWidth - 5) / 100 + 1;
+  if (filledWidth > battWidth - 5) {
+    filledWidth = battWidth - 5;  // Ensure we don't overflow
   }
 
-  // When charging, ensure minimum fill so lightning bolt is fully visible
-  constexpr int minFillForBolt = 8;
-  if (charging && filledWidth < minFillForBolt) {
-    filledWidth = std::min(minFillForBolt, maxFillWidth);
-  }
-
-  renderer.fillRect(x + 2, y + 2, filledWidth, fillHeight);
-
-  // Draw lightning bolt when charging (white/inverted on black fill for visibility)
-  if (charging) {
-    const int boltX = x + 4;
-    const int boltY = y + 2;
-    renderer.drawLine(boltX + 4, boltY + 0, boltX + 5, boltY + 0, false);
-    renderer.drawLine(boltX + 3, boltY + 1, boltX + 4, boltY + 1, false);
-    renderer.drawLine(boltX + 2, boltY + 2, boltX + 5, boltY + 2, false);
-    renderer.drawLine(boltX + 3, boltY + 3, boltX + 4, boltY + 3, false);
-    renderer.drawLine(boltX + 2, boltY + 4, boltX + 3, boltY + 4, false);
-    renderer.drawLine(boltX + 1, boltY + 5, boltX + 4, boltY + 5, false);
-    renderer.drawLine(boltX + 2, boltY + 6, boltX + 3, boltY + 6, false);
-    renderer.drawLine(boltX + 1, boltY + 7, boltX + 2, boltY + 7, false);
-  }
+  renderer.fillRect(x + 2, y + 2, filledWidth, rectHeight - 4);
 }
 }  // namespace
 
@@ -384,29 +357,25 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     const std::string coverBmpPath =
         UITheme::getCoverThumbPath(recentBooks[0].coverBmpPath, BaseMetrics::values.homeCoverHeight);
 
-    FsFile file;
-    if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
-      Bitmap bitmap(file);
-      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-        hasCoverImage = true;
-        const int imgWidth = bitmap.getWidth();
-        const int imgHeight = bitmap.getHeight();
+    BmpMetadata metadata;
+    if (BmpMetadataCache::get(coverBmpPath, metadata)) {
+      hasCoverImage = true;
+      const int imgWidth = metadata.width;
+      const int imgHeight = metadata.height;
 
-        // Calculate width based on aspect ratio, maintaining baseHeight
-        if (imgWidth > 0 && imgHeight > 0) {
-          const float aspectRatio = static_cast<float>(imgWidth) / static_cast<float>(imgHeight);
-          bookWidth = static_cast<int>(baseHeight * aspectRatio);
+      // Calculate width based on aspect ratio, maintaining baseHeight
+      if (imgWidth > 0 && imgHeight > 0) {
+        const float aspectRatio = static_cast<float>(imgWidth) / static_cast<float>(imgHeight);
+        bookWidth = static_cast<int>(baseHeight * aspectRatio);
 
-          // Ensure width doesn't exceed reasonable limits (max 90% of screen width)
-          const int maxWidth = static_cast<int>(rect.width * 0.9f);
-          if (bookWidth > maxWidth) {
-            bookWidth = maxWidth;
-          }
-        } else {
-          bookWidth = rect.width / 2;  // Fallback
+        // Ensure width doesn't exceed reasonable limits (max 90% of screen width)
+        const int maxWidth = static_cast<int>(rect.width * 0.9f);
+        if (bookWidth > maxWidth) {
+          bookWidth = maxWidth;
         }
+      } else {
+        bookWidth = rect.width / 2;  // Fallback
       }
-      file.close();
     }
   }
 
@@ -597,30 +566,63 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
-                               const std::function<UIIcon(int index)>& rowIcon) const {
+                               const std::function<UIIcon(int index)>& rowIcon,
+                               const std::function<std::string(int index)>& buttonSubtitle,
+                               const std::function<bool(int index)>& showAccessory) const {
+  const int availableHeight = std::max(0, rect.height);
+  const int gap = BaseMetrics::values.menuSpacing;
+  const int rowHeight = buttonCount > 0
+                            ? std::min(BaseMetrics::values.menuRowHeight,
+                                       (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
+                            : BaseMetrics::values.menuRowHeight;
+
   for (int i = 0; i < buttonCount; ++i) {
-    const int tileY = BaseMetrics::values.verticalSpacing + rect.y +
-                      static_cast<int>(i) * (BaseMetrics::values.menuRowHeight + BaseMetrics::values.menuSpacing);
+    const int tileY = rect.y + static_cast<int>(i) * (rowHeight + gap);
 
     const bool selected = selectedIndex == i;
 
     if (selected) {
       renderer.fillRect(rect.x + BaseMetrics::values.contentSidePadding, tileY,
-                        rect.width - BaseMetrics::values.contentSidePadding * 2, BaseMetrics::values.menuRowHeight);
+                        rect.width - BaseMetrics::values.contentSidePadding * 2, rowHeight);
     } else {
       renderer.drawRect(rect.x + BaseMetrics::values.contentSidePadding, tileY,
-                        rect.width - BaseMetrics::values.contentSidePadding * 2, BaseMetrics::values.menuRowHeight);
+                        rect.width - BaseMetrics::values.contentSidePadding * 2, rowHeight);
     }
 
     std::string labelStr = buttonLabel(i);
     const char* label = labelStr.c_str();
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
-    const int textX = rect.x + (rect.width - textWidth) / 2;
+    const std::string subtitle = buttonSubtitle ? buttonSubtitle(i) : std::string();
+    const bool hasSubtitle = !subtitle.empty();
     const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-    const int textY =
-        tileY + (BaseMetrics::values.menuRowHeight - lineHeight) / 2;  // vertically centered assuming y is top of text
-    // Invert text when the tile is selected, to contrast with the filled background
-    renderer.drawText(UI_10_FONT_ID, textX, textY, label, selectedIndex != i);
+
+    if (hasSubtitle) {
+      const int titleWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
+      const int titleX = rect.x + (rect.width - titleWidth) / 2;
+      const int titleY = tileY + 10;
+      renderer.drawText(UI_10_FONT_ID, titleX, titleY, label, selectedIndex != i);
+
+      const int accessoryPadding = showAccessory && showAccessory(i) ? 18 : 0;
+      std::string subtitleStr = renderer.truncatedText(SMALL_FONT_ID, subtitle.c_str(),
+                                                       rect.width - BaseMetrics::values.contentSidePadding * 2 - 24 -
+                                                           accessoryPadding,
+                                                       EpdFontFamily::REGULAR);
+      const int subtitleWidth = renderer.getTextWidth(SMALL_FONT_ID, subtitleStr.c_str());
+      const int subtitleX = rect.x + (rect.width - subtitleWidth) / 2;
+      const int subtitleY = tileY + 30;
+      renderer.drawText(SMALL_FONT_ID, subtitleX, subtitleY, subtitleStr.c_str(), selectedIndex != i);
+
+      if (showAccessory && showAccessory(i)) {
+        const int badgeSize = 12;
+        const int badgeX = subtitleX + subtitleWidth + 6;
+        const int badgeY = subtitleY - 1;
+        renderer.fillRect(badgeX, badgeY, badgeSize, badgeSize, selectedIndex != i);
+      }
+    } else {
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
+      const int textX = rect.x + (rect.width - textWidth) / 2;
+      const int textY = tileY + (rowHeight - lineHeight) / 2;
+      renderer.drawText(UI_10_FONT_ID, textX, textY, label, selectedIndex != i);
+    }
   }
 }
 

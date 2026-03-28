@@ -5,8 +5,12 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
+
+#include "util/TimeUtils.h"
+
 namespace {
-constexpr uint8_t STATE_FILE_VERSION = 4;
+constexpr uint8_t STATE_FILE_VERSION = 5;
 constexpr char STATE_FILE_BIN[] = "/.crosspoint/state.bin";
 constexpr char STATE_FILE_JSON[] = "/.crosspoint/state.json";
 constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
@@ -14,8 +18,9 @@ constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
 
 CrossPointState CrossPointState::instance;
 
-bool CrossPointState::saveToFile() const {
+bool CrossPointState::saveToFile() {
   Storage.mkdir("/.crosspoint");
+  lastKnownValidTimestamp = std::max(lastKnownValidTimestamp, TimeUtils::getCurrentValidTimestamp());
   return JsonSettingsIO::saveState(*this, STATE_FILE_JSON);
 }
 
@@ -74,6 +79,12 @@ bool CrossPointState::loadFromBinaryFile() {
     serialization::readPod(inputFile, lastSleepFromReader);
   } else {
     lastSleepFromReader = false;
+  }
+
+  if (version >= 5) {
+    serialization::readPod(inputFile, lastKnownValidTimestamp);
+  } else {
+    lastKnownValidTimestamp = 0;
   }
 
   inputFile.close();
