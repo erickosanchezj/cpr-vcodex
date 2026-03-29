@@ -16,6 +16,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "AchievementsStore.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
@@ -23,6 +24,7 @@
 #include "activities/apps/ReadingStatsDetailActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/AchievementPopupUtils.h"
 
 namespace {
 constexpr unsigned long skipPageMs = 700;
@@ -67,6 +69,8 @@ uint8_t getChapterProgressForStats(Xtc& xtc, const uint32_t currentPage) {
 
 void exitReaderToHomeOrStats(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& bookPath) {
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+  showPendingAchievementPopups(renderer);
   const bool countedSession =
       READING_STATS.getLastSessionSnapshot().valid && READING_STATS.getLastSessionSnapshot().counted &&
       READING_STATS.getLastSessionSnapshot().path == bookPath;
@@ -110,6 +114,7 @@ void XtcReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   xtc.reset();
 }
 
@@ -134,6 +139,9 @@ void XtcReaderActivity::loop() {
 
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= goHomeMs) {
+    READING_STATS.endSession();
+    ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+    showPendingAchievementPopups(renderer);
     activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
     return;
   }

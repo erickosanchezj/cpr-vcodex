@@ -1,5 +1,6 @@
 #include "AppsActivity.h"
 
+#include "AchievementsActivity.h"
 #include <GfxRenderer.h>
 #include <I18n.h>
 
@@ -132,6 +133,9 @@ void AppsActivity::openSelectedApp() {
       break;
     case ShortcutId::ReadingTimeline:
       activity = std::make_unique<ReadingTimelineActivity>(renderer, mappedInput);
+      break;
+    case ShortcutId::Achievements:
+      activity = std::make_unique<AchievementsActivity>(renderer, mappedInput);
       break;
     case ShortcutId::RecentBooks:
       activityManager.goToRecentBooks();

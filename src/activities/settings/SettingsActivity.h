@@ -24,11 +24,14 @@ enum class SettingAction {
   CheckForUpdates,
   Language,
   TimeZone,
+  ShortcutVisibility,
   OrderHomeShortcuts,
   OrderAppsShortcuts,
   ResetReadingStats,
   ExportReadingStats,
   ImportReadingStats,
+  ResetAchievements,
+  SyncAchievementsFromStats,
 };
 
 struct SettingInfo {

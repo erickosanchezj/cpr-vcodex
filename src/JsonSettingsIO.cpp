@@ -12,6 +12,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
+#include "AchievementsStore.h"
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
@@ -200,6 +201,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["readingStatsShortcutOrder"] = s.readingStatsShortcutOrder;
   doc["readingHeatmapShortcutOrder"] = s.readingHeatmapShortcutOrder;
   doc["readingTimelineShortcutOrder"] = s.readingTimelineShortcutOrder;
+  doc["achievementsShortcutOrder"] = s.achievementsShortcutOrder;
   doc["recentBooksShortcutOrder"] = s.recentBooksShortcutOrder;
   doc["bookmarksShortcutOrder"] = s.bookmarksShortcutOrder;
   doc["fileTransferShortcutOrder"] = s.fileTransferShortcutOrder;
@@ -295,7 +297,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
                             CrossPointSettings::SLEEP_IMAGE_ORDER_COUNT,
                             CrossPointSettings::SLEEP_IMAGE_SHUFFLE);
 
-  constexpr uint8_t shortcutOrderCount = 12;
+  constexpr uint8_t shortcutOrderCount = 13;
   s.appsHubShortcutOrder = clamp(doc["appsHubShortcutOrder"] | s.appsHubShortcutOrder, shortcutOrderCount,
                                  s.appsHubShortcutOrder);
   s.browseFilesShortcutOrder = clamp(doc["browseFilesShortcutOrder"] | s.browseFilesShortcutOrder, shortcutOrderCount,
@@ -312,6 +314,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
                                         shortcutOrderCount, s.readingHeatmapShortcutOrder);
   s.readingTimelineShortcutOrder = clamp(doc["readingTimelineShortcutOrder"] | s.readingTimelineShortcutOrder,
                                          shortcutOrderCount, s.readingTimelineShortcutOrder);
+  s.achievementsShortcutOrder = clamp(doc["achievementsShortcutOrder"] | s.achievementsShortcutOrder,
+                                      shortcutOrderCount, s.achievementsShortcutOrder);
   s.recentBooksShortcutOrder = clamp(doc["recentBooksShortcutOrder"] | s.recentBooksShortcutOrder, shortcutOrderCount,
                                      s.recentBooksShortcutOrder);
   s.bookmarksShortcutOrder =
@@ -655,5 +659,146 @@ bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const ch
 
   store.rebuildAggregatedReadingDays();
   LOG_DBG("RST", "Reading stats loaded from file (%d books)", static_cast<int>(store.books.size()));
+  return true;
+}
+
+// ---- AchievementsStore ----
+
+bool JsonSettingsIO::saveAchievements(const AchievementsStore& store, const char* path) {
+  JsonDocument doc;
+  doc["formatVersion"] = 1;
+  doc["accumulatedReadingMs"] = store.accumulatedReadingMs;
+  doc["countedSessions"] = store.countedSessions;
+  doc["totalBookmarksAdded"] = store.totalBookmarksAdded;
+  doc["longestSessionMs"] = store.longestSessionMs;
+  doc["goalDaysCount"] = store.goalDaysCount;
+  doc["currentGoalStreak"] = store.currentGoalStreak;
+  doc["maxGoalStreak"] = store.maxGoalStreak;
+  doc["lastGoalDayOrdinal"] = store.lastGoalDayOrdinal;
+  doc["resetDayOrdinal"] = store.resetDayOrdinal;
+  doc["resetDayBaselineMs"] = store.resetDayBaselineMs;
+  doc["lastProcessedSessionSerial"] = store.lastProcessedSessionSerial;
+
+  JsonArray states = doc["states"].to<JsonArray>();
+  for (const auto& state : store.states) {
+    JsonObject obj = states.add<JsonObject>();
+    obj["unlocked"] = state.unlocked;
+    obj["unlockedAt"] = state.unlockedAt;
+  }
+
+  JsonArray startedBooks = doc["startedBooks"].to<JsonArray>();
+  for (const auto& pathValue : store.startedBooks) {
+    startedBooks.add(pathValue);
+  }
+
+  JsonArray finishedBooks = doc["finishedBooks"].to<JsonArray>();
+  for (const auto& pathValue : store.finishedBooks) {
+    finishedBooks.add(pathValue);
+  }
+
+  return saveJsonDocumentToFile("ACH", path, doc);
+}
+
+bool JsonSettingsIO::loadAchievements(AchievementsStore& store, const char* json) {
+  JsonDocument doc;
+  auto error = deserializeJson(doc, json);
+  if (error) {
+    LOG_ERR("ACH", "JSON parse error: %s", error.c_str());
+    return false;
+  }
+
+  store.states = {};
+  store.startedBooks.clear();
+  store.finishedBooks.clear();
+  store.pendingUnlocks.clear();
+
+  store.accumulatedReadingMs = doc["accumulatedReadingMs"] | static_cast<uint64_t>(0);
+  store.countedSessions = doc["countedSessions"] | static_cast<uint32_t>(0);
+  store.totalBookmarksAdded = doc["totalBookmarksAdded"] | static_cast<uint32_t>(0);
+  store.longestSessionMs = doc["longestSessionMs"] | static_cast<uint32_t>(0);
+  store.goalDaysCount = doc["goalDaysCount"] | static_cast<uint32_t>(0);
+  store.currentGoalStreak = doc["currentGoalStreak"] | static_cast<uint32_t>(0);
+  store.maxGoalStreak = doc["maxGoalStreak"] | static_cast<uint32_t>(0);
+  store.lastGoalDayOrdinal = doc["lastGoalDayOrdinal"] | static_cast<uint32_t>(0);
+  store.resetDayOrdinal = doc["resetDayOrdinal"] | static_cast<uint32_t>(0);
+  store.resetDayBaselineMs = doc["resetDayBaselineMs"] | static_cast<uint64_t>(0);
+  store.lastProcessedSessionSerial = doc["lastProcessedSessionSerial"] | static_cast<uint32_t>(0);
+
+  JsonArray states = doc["states"].as<JsonArray>();
+  size_t stateIndex = 0;
+  for (JsonObject obj : states) {
+    if (stateIndex >= store.states.size()) {
+      break;
+    }
+    store.states[stateIndex].unlocked = obj["unlocked"] | false;
+    store.states[stateIndex].unlockedAt = obj["unlockedAt"] | static_cast<uint32_t>(0);
+    ++stateIndex;
+  }
+
+  for (JsonVariant value : doc["startedBooks"].as<JsonArray>()) {
+    const std::string pathValue = value | std::string("");
+    if (!pathValue.empty()) {
+      store.startedBooks.push_back(pathValue);
+    }
+  }
+
+  for (JsonVariant value : doc["finishedBooks"].as<JsonArray>()) {
+    const std::string pathValue = value | std::string("");
+    if (!pathValue.empty()) {
+      store.finishedBooks.push_back(pathValue);
+    }
+  }
+
+  return true;
+}
+
+bool JsonSettingsIO::loadAchievementsFromFile(AchievementsStore& store, const char* path) {
+  JsonDocument doc;
+  if (!loadJsonDocumentFromFile("ACH", path, doc)) {
+    return false;
+  }
+
+  store.states = {};
+  store.startedBooks.clear();
+  store.finishedBooks.clear();
+  store.pendingUnlocks.clear();
+
+  store.accumulatedReadingMs = doc["accumulatedReadingMs"] | static_cast<uint64_t>(0);
+  store.countedSessions = doc["countedSessions"] | static_cast<uint32_t>(0);
+  store.totalBookmarksAdded = doc["totalBookmarksAdded"] | static_cast<uint32_t>(0);
+  store.longestSessionMs = doc["longestSessionMs"] | static_cast<uint32_t>(0);
+  store.goalDaysCount = doc["goalDaysCount"] | static_cast<uint32_t>(0);
+  store.currentGoalStreak = doc["currentGoalStreak"] | static_cast<uint32_t>(0);
+  store.maxGoalStreak = doc["maxGoalStreak"] | static_cast<uint32_t>(0);
+  store.lastGoalDayOrdinal = doc["lastGoalDayOrdinal"] | static_cast<uint32_t>(0);
+  store.resetDayOrdinal = doc["resetDayOrdinal"] | static_cast<uint32_t>(0);
+  store.resetDayBaselineMs = doc["resetDayBaselineMs"] | static_cast<uint64_t>(0);
+  store.lastProcessedSessionSerial = doc["lastProcessedSessionSerial"] | static_cast<uint32_t>(0);
+
+  JsonArray states = doc["states"].as<JsonArray>();
+  size_t stateIndex = 0;
+  for (JsonObject obj : states) {
+    if (stateIndex >= store.states.size()) {
+      break;
+    }
+    store.states[stateIndex].unlocked = obj["unlocked"] | false;
+    store.states[stateIndex].unlockedAt = obj["unlockedAt"] | static_cast<uint32_t>(0);
+    ++stateIndex;
+  }
+
+  for (JsonVariant value : doc["startedBooks"].as<JsonArray>()) {
+    const std::string pathValue = value | std::string("");
+    if (!pathValue.empty()) {
+      store.startedBooks.push_back(pathValue);
+    }
+  }
+
+  for (JsonVariant value : doc["finishedBooks"].as<JsonArray>()) {
+    const std::string pathValue = value | std::string("");
+    if (!pathValue.empty()) {
+      store.finishedBooks.push_back(pathValue);
+    }
+  }
+
   return true;
 }

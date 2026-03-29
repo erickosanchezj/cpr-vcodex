@@ -30,6 +30,7 @@ struct ReadingBookStats {
 
 struct ReadingSessionSnapshot {
   bool valid = false;
+  uint32_t serial = 0;
   std::string path;
   uint32_t sessionMs = 0;
   bool counted = false;
@@ -74,6 +75,7 @@ class ReadingStatsStore {
   std::vector<ReadingDayStats> readingDays;
   SessionState activeSession;
   ReadingSessionSnapshot lastSessionSnapshot;
+  uint32_t sessionSerialCounter = 0;
   mutable SummaryCache summaryCache;
   mutable bool dirty = false;
   mutable unsigned long lastSaveMs = 0;
@@ -93,6 +95,7 @@ class ReadingStatsStore {
   void updateBookReadTimestamp(ReadingBookStats& book, uint32_t preferredTimestamp);
   void recordReadingTime(ReadingBookStats& book, uint32_t epochSeconds, uint64_t readingMs);
   void rebuildAggregatedReadingDays();
+  bool removeIgnoredBooks();
   void invalidateSummaryCache();
   void rebuildSummaryCache() const;
   bool shouldSaveDeferred() const;
@@ -122,6 +125,7 @@ class ReadingStatsStore {
 
   const std::vector<ReadingBookStats>& getBooks() const { return books; }
   const std::vector<ReadingDayStats>& getReadingDays() const { return readingDays; }
+  static bool shouldIgnorePath(const std::string& path);
 
   uint32_t getBooksStartedCount() const { return static_cast<uint32_t>(books.size()); }
   uint32_t getBooksFinishedCount() const;

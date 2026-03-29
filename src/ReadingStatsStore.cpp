@@ -1,6 +1,7 @@
 #include "ReadingStatsStore.h"
 
 #include <Arduino.h>
+#include <FsHelpers.h>
 #include <HalStorage.h>
 #include <JsonSettingsIO.h>
 
@@ -20,6 +21,23 @@ constexpr uint64_t MIN_SESSION_READING_MS = 60ULL * 1000ULL;
 uint8_t clampPercent(const uint8_t percent) { return std::min<uint8_t>(percent, 100); }
 
 bool countsForStreak(const ReadingDayStats& day) { return day.readingMs >= DAILY_READING_GOAL_MS; }
+
+bool isIgnoredStatsPath(const std::string& path) {
+  if (path.empty()) {
+    return false;
+  }
+
+  std::string normalized = FsHelpers::normalisePath(path);
+  if (normalized.empty()) {
+    return false;
+  }
+
+  if (normalized.front() != '/') {
+    normalized.insert(normalized.begin(), '/');
+  }
+
+  return normalized == "/ignore_stats" || normalized.rfind("/ignore_stats/", 0) == 0;
+}
 
 void normalizeReadingDays(std::vector<ReadingDayStats>& readingDays) {
   std::sort(readingDays.begin(), readingDays.end(),
@@ -76,6 +94,9 @@ size_t ReadingStatsStore::getOrCreateBookIndex(const std::string& path, const st
 }
 
 const ReadingBookStats* ReadingStatsStore::findBook(const std::string& path) const {
+  if (shouldIgnorePath(path)) {
+    return nullptr;
+  }
   auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
   return it == books.end() ? nullptr : &(*it);
 }
@@ -169,6 +190,8 @@ void ReadingStatsStore::touchBook(const size_t index) {
 
 bool ReadingStatsStore::isClockValid(const uint32_t epochSeconds) { return TimeUtils::isClockValid(epochSeconds); }
 
+bool ReadingStatsStore::shouldIgnorePath(const std::string& path) { return isIgnoredStatsPath(path); }
+
 void ReadingStatsStore::recordReadingTime(ReadingBookStats& book, const uint32_t epochSeconds, const uint64_t readingMs) {
   if (!isClockValid(epochSeconds) || readingMs == 0) {
     return;
@@ -187,6 +210,14 @@ void ReadingStatsStore::rebuildAggregatedReadingDays() {
       addReadingToDays(readingDays, day.dayOrdinal, day.readingMs);
     }
   }
+}
+
+bool ReadingStatsStore::removeIgnoredBooks() {
+  const size_t originalCount = books.size();
+  books.erase(std::remove_if(books.begin(), books.end(),
+                             [](const ReadingBookStats& book) { return shouldIgnorePath(book.path); }),
+              books.end());
+  return books.size() != originalCount;
 }
 
 void ReadingStatsStore::invalidateSummaryCache() { summaryCache.valid = false; }
@@ -295,6 +326,12 @@ void ReadingStatsStore::beginSession(const std::string& path, const std::string&
     endSession();
   }
 
+  if (shouldIgnorePath(path)) {
+    activeSession = {};
+    lastSessionSnapshot = {};
+    return;
+  }
+
   size_t index = getOrCreateBookIndex(path, title, author, coverBmpPath);
   touchBook(index);
 
@@ -398,6 +435,10 @@ void ReadingStatsStore::updateProgress(const uint8_t progressPercent, const bool
 
 bool ReadingStatsStore::updateBookMetadata(const std::string& path, const std::string& title, const std::string& author,
                                            const std::string& coverBmpPath) {
+  if (shouldIgnorePath(path)) {
+    return false;
+  }
+
   auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
   if (it == books.end()) {
     return false;
@@ -454,6 +495,7 @@ bool ReadingStatsStore::removeBook(const std::string& path) {
 
 void ReadingStatsStore::endSession() {
   if (!activeSession.active || activeSession.bookIndex >= books.size()) {
+    lastSessionSnapshot = {};
     activeSession = {};
     return;
   }
@@ -472,6 +514,7 @@ void ReadingStatsStore::endSession() {
   }
 
   lastSessionSnapshot.valid = true;
+  lastSessionSnapshot.serial = ++sessionSerialCounter;
   lastSessionSnapshot.path = book.path;
   lastSessionSnapshot.sessionMs = sessionMs;
   lastSessionSnapshot.counted = countedSession;
@@ -596,6 +639,8 @@ bool ReadingStatsStore::importFromFile(const std::string& path) {
   }
   activeSession = {};
   lastSessionSnapshot = {};
+  sessionSerialCounter = 0;
+  removeIgnoredBooks();
   rebuildAggregatedReadingDays();
   const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
   if (isClockValid(latestKnownTimestamp) && latestKnownTimestamp > APP_STATE.lastKnownValidTimestamp) {
@@ -627,6 +672,7 @@ bool ReadingStatsStore::loadFromFile() {
     for (auto& book : books) {
       normalizeReadingDays(book.readingDays);
     }
+    removeIgnoredBooks();
     rebuildAggregatedReadingDays();
     const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
     if (isClockValid(latestKnownTimestamp) && latestKnownTimestamp > APP_STATE.lastKnownValidTimestamp) {
@@ -634,6 +680,7 @@ bool ReadingStatsStore::loadFromFile() {
     }
     activeSession = {};
     lastSessionSnapshot = {};
+    sessionSerialCounter = 0;
     dirty = false;
     lastSaveMs = millis();
     invalidateSummaryCache();

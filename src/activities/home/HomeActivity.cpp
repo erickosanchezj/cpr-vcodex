@@ -20,6 +20,7 @@
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
+#include "activities/apps/AchievementsActivity.h"
 #include "activities/apps/BookmarksAppActivity.h"
 #include "activities/apps/ReadingHeatmapActivity.h"
 #include "activities/apps/ReadingStatsActivity.h"
@@ -327,6 +328,10 @@ void HomeActivity::loop() {
           break;
         case ShortcutId::ReadingTimeline:
           startActivityForResult(std::make_unique<ReadingTimelineActivity>(renderer, mappedInput),
+                                 [this](const ActivityResult&) { requestUpdate(); });
+          break;
+        case ShortcutId::Achievements:
+          startActivityForResult(std::make_unique<AchievementsActivity>(renderer, mappedInput),
                                  [this](const ActivityResult&) { requestUpdate(); });
           break;
         case ShortcutId::RecentBooks:

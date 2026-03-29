@@ -12,6 +12,7 @@
 #include "CalibreSettingsActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "AchievementsStore.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
@@ -19,6 +20,7 @@
 #include "ReadingStatsStore.h"
 #include "SettingsList.h"
 #include "ShortcutOrderActivity.h"
+#include "ShortcutVisibilityActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "TimeZoneSelectActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -172,42 +174,17 @@ void SettingsActivity::onEnter() {
   appSettings.push_back(SettingInfo::Action(StrId::STR_RESET, SettingAction::ResetReadingStats));
   appSettings.push_back(SettingInfo::Action(StrId::STR_EXPORT, SettingAction::ExportReadingStats));
   appSettings.push_back(SettingInfo::Action(StrId::STR_IMPORT, SettingAction::ImportReadingStats));
+  appSettings.push_back(SettingInfo::Section(StrId::STR_ACHIEVEMENTS));
+  appSettings.push_back(SettingInfo::Toggle(StrId::STR_ENABLE_ACHIEVEMENTS, &CrossPointSettings::achievementsEnabled,
+                                            "achievementsEnabled", StrId::STR_APPS));
+  appSettings.push_back(SettingInfo::Toggle(StrId::STR_ACHIEVEMENT_POPUPS, &CrossPointSettings::achievementPopups,
+                                            "achievementPopups", StrId::STR_APPS));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_RESET_ACHIEVEMENTS, SettingAction::ResetAchievements));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_WITH_PREV_STATS, SettingAction::SyncAchievementsFromStats));
   appSettings.push_back(SettingInfo::Section(StrId::STR_SHORTCUTS_SECTION));
+  appSettings.push_back(SettingInfo::Action(StrId::STR_SHORTCUT_VISIBILITY, SettingAction::ShortcutVisibility));
   appSettings.push_back(SettingInfo::Action(StrId::STR_ORDER_HOME_SHORTCUTS, SettingAction::OrderHomeShortcuts));
   appSettings.push_back(SettingInfo::Action(StrId::STR_ORDER_APPS_SHORTCUTS, SettingAction::OrderAppsShortcuts));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_BROWSE_FILES, &CrossPointSettings::browseFilesShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "browseFilesShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_STATS_SHORTCUT, &CrossPointSettings::statsShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "statsShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_SYNC_DAY, &CrossPointSettings::syncDayShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "syncDayShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_SETTINGS_TITLE, &CrossPointSettings::settingsShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "settingsShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_READING_STATS, &CrossPointSettings::readingStatsShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "readingStatsShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_READING_HEATMAP, &CrossPointSettings::readingHeatmapShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "readingHeatmapShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_READING_TIMELINE, &CrossPointSettings::readingTimelineShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "readingTimelineShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_MENU_RECENT_BOOKS, &CrossPointSettings::recentBooksShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "recentBooksShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_BOOKMARKS, &CrossPointSettings::bookmarksShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "bookmarksShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_FILE_TRANSFER, &CrossPointSettings::fileTransferShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "fileTransferShortcut",
-                                          StrId::STR_APPS));
-  appSettings.push_back(SettingInfo::Enum(StrId::STR_SLEEP, &CrossPointSettings::sleepShortcut,
-                                          {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "sleepShortcut",
-                                          StrId::STR_APPS));
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
@@ -407,6 +384,9 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::TimeZone:
         startActivityForResult(std::make_unique<TimeZoneSelectActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::ShortcutVisibility:
+        startActivityForResult(std::make_unique<ShortcutVisibilityActivity>(renderer, mappedInput), resultHandler);
+        break;
       case SettingAction::OrderHomeShortcuts:
         startActivityForResult(std::make_unique<ShortcutOrderActivity>(renderer, mappedInput, ShortcutOrderGroup::Home),
                                resultHandler);
@@ -455,6 +435,24 @@ void SettingsActivity::toggleCurrentSetting() {
                                  SETTINGS.saveToFile();
                                  requestUpdate(true);
                                });
+        break;
+      case SettingAction::ResetAchievements:
+        startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                                      tr(STR_RESET_ACHIEVEMENTS_CONFIRM), ""),
+                               [this](const ActivityResult& result) {
+                                 if (!result.isCancelled) {
+                                   ACHIEVEMENTS.reset();
+                                 }
+                                 SETTINGS.saveToFile();
+                                 requestUpdate(true);
+                               });
+        break;
+      case SettingAction::SyncAchievementsFromStats:
+        showTransientPopup(tr(STR_SYNC_WITH_PREV_STATS), 20, 120);
+        ACHIEVEMENTS.syncWithPreviousStats();
+        showTransientPopup(tr(STR_DONE), 100, 350);
+        SETTINGS.saveToFile();
+        requestUpdate(true);
         break;
       case SettingAction::None:
         // Do nothing

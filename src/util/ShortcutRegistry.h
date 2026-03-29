@@ -16,6 +16,7 @@ enum class ShortcutId {
   ReadingStats,
   ReadingHeatmap,
   ReadingTimeline,
+  Achievements,
   RecentBooks,
   Bookmarks,
   FileTransfer,
@@ -31,8 +32,8 @@ struct ShortcutDefinition {
   uint8_t CrossPointSettings::* orderPtr;
 };
 
-inline const std::array<ShortcutDefinition, 11>& getShortcutDefinitions() {
-  static const std::array<ShortcutDefinition, 11> definitions = {
+inline const std::array<ShortcutDefinition, 12>& getShortcutDefinitions() {
+  static const std::array<ShortcutDefinition, 12> definitions = {
       ShortcutDefinition{ShortcutId::BrowseFiles, StrId::STR_BROWSE_FILES, StrId::STR_NONE_OPT, UIIcon::Folder,
                          &CrossPointSettings::browseFilesShortcut, &CrossPointSettings::browseFilesShortcutOrder},
       ShortcutDefinition{ShortcutId::Stats, StrId::STR_STATS_SHORTCUT, StrId::STR_NONE_OPT, UIIcon::Book,
@@ -50,6 +51,9 @@ inline const std::array<ShortcutDefinition, 11>& getShortcutDefinitions() {
       ShortcutDefinition{ShortcutId::ReadingTimeline, StrId::STR_READING_TIMELINE, StrId::STR_READING_TIMELINE_DESC,
                          UIIcon::Recent, &CrossPointSettings::readingTimelineShortcut,
                          &CrossPointSettings::readingTimelineShortcutOrder},
+      ShortcutDefinition{ShortcutId::Achievements, StrId::STR_ACHIEVEMENTS, StrId::STR_ACHIEVEMENTS_APP_DESC,
+                         UIIcon::Library, &CrossPointSettings::achievementsShortcut,
+                         &CrossPointSettings::achievementsShortcutOrder},
       ShortcutDefinition{ShortcutId::RecentBooks, StrId::STR_MENU_RECENT_BOOKS, StrId::STR_RECENT_BOOKS_APP_DESC,
                          UIIcon::Recent, &CrossPointSettings::recentBooksShortcut,
                          &CrossPointSettings::recentBooksShortcutOrder},

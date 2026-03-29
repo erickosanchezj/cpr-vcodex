@@ -209,6 +209,8 @@ class CrossPointSettings {
   uint8_t timeZonePreset = 0;
   uint8_t dateFormat = DATE_DD_MM_YYYY;
   uint8_t showStatsAfterReading = 0;
+  uint8_t achievementsEnabled = 1;
+  uint8_t achievementPopups = 1;
   uint8_t appsHubShortcutOrder = 1;
   uint8_t browseFilesShortcut = SHORTCUT_HOME;
   uint8_t browseFilesShortcutOrder = 0;
@@ -224,14 +226,16 @@ class CrossPointSettings {
   uint8_t readingHeatmapShortcutOrder = 6;
   uint8_t readingTimelineShortcut = SHORTCUT_APPS;
   uint8_t readingTimelineShortcutOrder = 7;
+  uint8_t achievementsShortcut = SHORTCUT_APPS;
+  uint8_t achievementsShortcutOrder = 8;
   uint8_t recentBooksShortcut = SHORTCUT_APPS;
-  uint8_t recentBooksShortcutOrder = 8;
+  uint8_t recentBooksShortcutOrder = 9;
   uint8_t bookmarksShortcut = SHORTCUT_APPS;
-  uint8_t bookmarksShortcutOrder = 9;
+  uint8_t bookmarksShortcutOrder = 10;
   uint8_t fileTransferShortcut = SHORTCUT_APPS;
-  uint8_t fileTransferShortcutOrder = 10;
+  uint8_t fileTransferShortcutOrder = 11;
   uint8_t sleepShortcut = SHORTCUT_APPS;
-  uint8_t sleepShortcutOrder = 11;
+  uint8_t sleepShortcutOrder = 12;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)

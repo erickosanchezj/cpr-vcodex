@@ -11,6 +11,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "AchievementsStore.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
 #include "ReaderUtils.h"
@@ -18,6 +19,7 @@
 #include "activities/apps/ReadingStatsDetailActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/AchievementPopupUtils.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
@@ -27,6 +29,8 @@ constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format cha
 
 void exitReaderToHomeOrStats(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& bookPath) {
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+  showPendingAchievementPopups(renderer);
   const bool countedSession =
       READING_STATS.getLastSessionSnapshot().valid && READING_STATS.getLastSessionSnapshot().counted &&
       READING_STATS.getLastSessionSnapshot().path == bookPath;
@@ -74,6 +78,7 @@ void TxtReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   txt.reset();
 }
 
@@ -82,6 +87,9 @@ void TxtReaderActivity::loop() {
 
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+    READING_STATS.endSession();
+    ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+    showPendingAchievementPopups(renderer);
     activityManager.goToFileBrowser(txt ? txt->getPath() : "");
     return;
   }

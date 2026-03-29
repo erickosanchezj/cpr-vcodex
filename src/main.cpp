@@ -17,6 +17,8 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "AchievementsStore.h"
+#include "FirmwareVersion.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
@@ -285,7 +287,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION_DISPLAY);
 
   setupDisplayAndFonts();
 
@@ -294,6 +296,7 @@ void setup() {
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   READING_STATS.loadFromFile();
+  ACHIEVEMENTS.loadFromFile();
 
   // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
   // crashed (indicated by readerActivityLoadCount > 0)

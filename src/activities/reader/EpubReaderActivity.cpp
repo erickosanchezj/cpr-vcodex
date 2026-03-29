@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "AchievementsStore.h"
 #include "BookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
@@ -27,6 +28,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
+#include "util/AchievementPopupUtils.h"
 
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
@@ -106,6 +108,8 @@ std::string extractBookmarkSnippet(Section& section) {
 
 void exitReaderToHomeOrStats(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& bookPath) {
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+  showPendingAchievementPopups(renderer);
   const bool countedSession =
       READING_STATS.getLastSessionSnapshot().valid && READING_STATS.getLastSessionSnapshot().counted &&
       READING_STATS.getLastSessionSnapshot().path == bookPath;
@@ -189,6 +193,7 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   READING_STATS.endSession();
+  ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   bookmarkStore.save();
   section.reset();
   epub.reset();
@@ -236,11 +241,17 @@ void EpubReaderActivity::loop() {
       const uint16_t pageNumber = static_cast<uint16_t>(section->currentPage);
       const bool wasBookmarked = bookmarkStore.has(spineIndex, pageNumber);
       const std::string snippet = wasBookmarked ? "" : extractBookmarkSnippet(*section);
-      bookmarkStore.toggle(spineIndex, pageNumber, snippet);
+      const bool addedBookmark = bookmarkStore.toggle(spineIndex, pageNumber, snippet);
       bookmarkStore.save();
-      GUI.drawPopup(renderer, wasBookmarked ? tr(STR_BOOKMARK_REMOVED) : tr(STR_BOOKMARK_ADDED));
-      renderer.displayBuffer();
-      delay(500);
+      if (addedBookmark && epub && !READING_STATS.shouldIgnorePath(epub->getPath())) {
+        ACHIEVEMENTS.recordBookmarkAdded();
+      }
+      const bool showedAchievement = showPendingAchievementPopups(renderer);
+      if (!showedAchievement) {
+        GUI.drawPopup(renderer, wasBookmarked ? tr(STR_BOOKMARK_REMOVED) : tr(STR_BOOKMARK_ADDED));
+        renderer.displayBuffer();
+        delay(500);
+      }
       requestUpdate();
     }
     return;
@@ -275,6 +286,9 @@ void EpubReaderActivity::loop() {
 
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+    READING_STATS.endSession();
+    ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
+    showPendingAchievementPopups(renderer);
     activityManager.goToFileBrowser(epub ? epub->getPath() : "");
     return;
   }

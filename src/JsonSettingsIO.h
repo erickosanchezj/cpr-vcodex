@@ -6,6 +6,7 @@ class WifiCredentialStore;
 class KOReaderCredentialStore;
 class RecentBooksStore;
 class ReadingStatsStore;
+class AchievementsStore;
 
 namespace JsonSettingsIO {
 
@@ -34,5 +35,8 @@ bool loadRecentBooksFromFile(RecentBooksStore& store, const char* path);
 bool saveReadingStats(const ReadingStatsStore& store, const char* path);
 bool loadReadingStats(ReadingStatsStore& store, const char* json);
 bool loadReadingStatsFromFile(ReadingStatsStore& store, const char* path);
+bool saveAchievements(const AchievementsStore& store, const char* path);
+bool loadAchievements(AchievementsStore& store, const char* json);
+bool loadAchievementsFromFile(AchievementsStore& store, const char* path);
 
 }  // namespace JsonSettingsIO
