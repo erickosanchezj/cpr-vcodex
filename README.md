@@ -20,8 +20,8 @@ This project is **not affiliated with Xteink**.
 |---|---|
 | Base firmware | CrossPoint Reader |
 | Device | Xteink X4 |
-| Current release | `1.1.6-vcodex` |
-| Version code | `2026032906` |
+| Current release | `1.1.7-vcodex` |
+| Version code | `2026032907` |
 | Release notes | [CHANGELOG.md](./CHANGELOG.md) |
 | Recommended install | browser OTA fast flash |
 
@@ -235,7 +235,7 @@ Current achievement list:
 - `One-Hour Club` - read for 1 hour in total
 - `Five and Rising` - read for 5 hours in total
 - `Tenacious Reader` - read for 10 hours in total
-- `Day Tripper` - read for 24 hours in total
+- `Full Day` - read for 24 hours in total
 - `Fifty Forward` - read for 50 hours in total
 - `Century Reader` - read for 100 hours in total
 - `Double Century` - read for 200 hours in total

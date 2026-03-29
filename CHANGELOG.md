@@ -2,6 +2,13 @@
 
 Brief firmware history for `crosspoint-vcodex`.
 
+## 1.1.7-vcodex
+
+- fixed `Achievements` title/description mismatches caused by definition lookup using enum order instead of the real achievement id
+- restored coherence between progress targets and labels such as `Belle of the Books`, `Trilogy`, `Finish Line`, `Word Warden`, `Bookmark Hoarder` and `Flag Garden`
+
+Version code: `2026032907`
+
 ## 1.1.6-vcodex
 
 - fixed `Achievements` list navigation so the on-screen `Up/Down` controls actually scroll the achievements list

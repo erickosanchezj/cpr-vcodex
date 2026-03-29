@@ -172,7 +172,7 @@ class AchievementsStore {
   std::string popNextPopupMessage();
 
   const AchievementState& getState(AchievementId id) const { return states[indexOf(id)]; }
-  const AchievementDefinition& getDefinition(AchievementId id) const { return definitions()[indexOf(id)]; }
+  const AchievementDefinition& getDefinition(AchievementId id) const;
   std::string getTitle(AchievementId id) const;
   std::string getDescription(AchievementId id) const;
 };

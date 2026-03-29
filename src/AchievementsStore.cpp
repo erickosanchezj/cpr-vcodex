@@ -213,6 +213,19 @@ bool AchievementsStore::hasString(const std::vector<std::string>& values, const 
   return std::find(values.begin(), values.end(), value) != values.end();
 }
 
+const AchievementDefinition& AchievementsStore::getDefinition(const AchievementId id) const {
+  const auto& items = definitions();
+  const auto it = std::find_if(items.begin(), items.end(), [id](const AchievementDefinition& definition) {
+    return definition.id == id;
+  });
+
+  if (it != items.end()) {
+    return *it;
+  }
+
+  return items.front();
+}
+
 void AchievementsStore::markDirty() { dirty = true; }
 
 std::string AchievementsStore::getTitle(const AchievementId id) const {
