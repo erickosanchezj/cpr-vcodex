@@ -45,7 +45,7 @@ For most users, this is the easiest way to install the firmware:
 ## Screenshots
 
 <p align="center">
-  <img src="./docs/images/overview-v1.1.13.png" alt="cpr-vcodex overview" width="1000" />
+  <img src="./docs/images/vcodex1.1.13.png" alt="cpr-vcodex overview" width="1000" />
 </p>
 
 ## What this fork adds
