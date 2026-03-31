@@ -1,3 +1,10 @@
+
+## Screenshots
+
+<p align="center">
+  <img src="./docs/images/vcodex1.1.13.png" alt="cpr-vcodex overview" width="1000" />
+</p>
+
 # cpr-vcodex
 
 `cpr-vcodex` builds on the great work of **CrossPoint Reader**. This firmware line starts from **CrossPoint Reader 1.1.1** and has been extended and improved with the help of **OpenAI Codex** for the **Xteink X4**.
@@ -41,12 +48,6 @@ For most users, this is the easiest way to install the firmware:
    press the bottom-right button once, then press and hold the right power button.
 
 > To return to the original CrossPoint Reader later, repeat the same process with the original firmware file.
-
-## Screenshots
-
-<p align="center">
-  <img src="./docs/images/vcodex1.1.13.png" alt="cpr-vcodex overview" width="1000" />
-</p>
 
 ## What this fork adds
 
