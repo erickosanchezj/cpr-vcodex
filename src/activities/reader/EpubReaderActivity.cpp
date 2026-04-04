@@ -29,6 +29,7 @@
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
 #include "util/AchievementPopupUtils.h"
+#include "util/BookIdentity.h"
 
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
@@ -78,6 +79,12 @@ uint8_t getStatsChapterProgressPercent(const int currentPage, const int pageCoun
   return static_cast<uint8_t>(
       clampPercent(static_cast<int>((static_cast<float>(currentPage + 1) / static_cast<float>(pageCount)) * 100.0f + 0.5f)));
 }
+
+std::string getStableProgressPath(const std::string& bookId) {
+  return BookIdentity::getStableDataFilePath(bookId, "epub_progress.bin");
+}
+
+std::string getLegacyProgressPath(Epub& epub) { return epub.getCachePath() + "/progress.bin"; }
 
 std::string extractBookmarkSnippet(Section& section) {
   auto page = section.loadPageFromSectionFile();
@@ -136,10 +143,21 @@ void EpubReaderActivity::onEnter() {
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   epub->setupCacheDir();
-  bookmarkStore.load(epub->getCachePath());
+  stableBookId = BookIdentity::resolveStableBookId(epub->getPath());
+  bookmarkStore.load(epub->getCachePath(), stableBookId);
 
   FsFile f;
-  if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
+  const std::string stableProgressPath = getStableProgressPath(stableBookId);
+  const std::string legacyProgressPath = getLegacyProgressPath(*epub);
+  bool loadedLegacyProgress = false;
+  bool openedProgress = false;
+  if (!stableProgressPath.empty() && Storage.openFileForRead("ERS", stableProgressPath, f)) {
+    openedProgress = true;
+  } else if (Storage.openFileForRead("ERS", legacyProgressPath, f)) {
+    loadedLegacyProgress = true;
+    openedProgress = true;
+  }
+  if (openedProgress) {
     uint8_t data[6];
     int dataSize = f.read(data, 6);
     if (dataSize == 4 || dataSize == 6) {
@@ -152,6 +170,9 @@ void EpubReaderActivity::onEnter() {
       cachedChapterTotalPageCount = data[4] + (data[5] << 8);
     }
     f.close();
+    if (loadedLegacyProgress) {
+      saveProgress(currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount);
+    }
   }
   // We may want a better condition to detect if we are opening for the first time.
   // This will trigger if the book is re-opened at Chapter 0.
@@ -174,7 +195,7 @@ void EpubReaderActivity::onEnter() {
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+  RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath(), stableBookId);
   READING_STATS.beginSession(
       epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getCoverBmpPath(),
       clampPercent(static_cast<int>(epub->calculateProgress(currentSpineIndex, 0.0f) * 100.0f + 0.5f)),
@@ -831,7 +852,11 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
                                getStatsChapterTitle(*epub, spineIndex), getStatsChapterProgressPercent(currentPage, pageCount));
 
   FsFile f;
-  if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
+  const std::string progressPath = getStableProgressPath(stableBookId);
+  if (!progressPath.empty()) {
+    BookIdentity::ensureStableDataDir(stableBookId);
+  }
+  if (Storage.openFileForWrite("ERS", progressPath.empty() ? getLegacyProgressPath(*epub) : progressPath, f)) {
     uint8_t data[6];
     data[0] = spineIndex & 0xFF;
     data[1] = (spineIndex >> 8) & 0xFF;

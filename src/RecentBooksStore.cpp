@@ -10,6 +10,9 @@
 
 #include <algorithm>
 
+#include "ReadingStatsStore.h"
+#include "util/BookIdentity.h"
+
 namespace {
 constexpr uint8_t RECENT_BOOKS_FILE_VERSION = 3;
 constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crosspoint/recent.bin";
@@ -20,19 +23,99 @@ constexpr int MAX_RECENT_BOOKS = 10;
 
 RecentBooksStore RecentBooksStore::instance;
 
-void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
-                               const std::string& coverBmpPath) {
-  // Remove existing entry if present
-  auto it =
-      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
-  if (it != recentBooks.end()) {
-    recentBooks.erase(it);
+int RecentBooksStore::findBookIndex(const std::string& path, const std::string& bookId) const {
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  for (int index = 0; index < static_cast<int>(recentBooks.size()); ++index) {
+    const auto& book = recentBooks[index];
+    if (!bookId.empty() && !book.bookId.empty() && book.bookId == bookId) {
+      return index;
+    }
+    if (!normalizedPath.empty() && book.path == normalizedPath) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+void RecentBooksStore::normalizeBook(RecentBook& book) {
+  book.path = BookIdentity::normalizePath(book.path);
+  if (!book.bookId.empty()) {
+    return;
   }
 
-  // Add to front
-  recentBooks.insert(recentBooks.begin(), {path, title, author, coverBmpPath});
+  if (!book.path.empty() && Storage.exists(book.path.c_str())) {
+    book.bookId = BookIdentity::resolveStableBookId(book.path);
+    return;
+  }
 
-  // Trim to max size
+  if (const auto* statsBook = READING_STATS.findMatchingBookForPath(book.path, book.title, book.author)) {
+    book.bookId = statsBook->bookId;
+  }
+}
+
+void RecentBooksStore::normalizeBooks() {
+  for (auto& book : recentBooks) {
+    normalizeBook(book);
+  }
+
+  std::vector<RecentBook> normalized;
+  normalized.reserve(recentBooks.size());
+  for (const auto& book : recentBooks) {
+    const int existingIndex = [&normalized, &book]() {
+      for (int index = 0; index < static_cast<int>(normalized.size()); ++index) {
+        const auto& existing = normalized[index];
+        if (!book.bookId.empty() && !existing.bookId.empty() && book.bookId == existing.bookId) {
+          return index;
+        }
+        if (!book.path.empty() && existing.path == book.path) {
+          return index;
+        }
+      }
+      return -1;
+    }();
+
+    if (existingIndex < 0) {
+      normalized.push_back(book);
+      continue;
+    }
+
+    auto& existing = normalized[existingIndex];
+    if (existing.bookId.empty()) {
+      existing.bookId = book.bookId;
+    }
+    if (existing.path.empty() || (!book.path.empty() && Storage.exists(book.path.c_str()))) {
+      existing.path = book.path;
+    }
+    if (existing.title.empty() && !book.title.empty()) {
+      existing.title = book.title;
+    }
+    if (existing.author.empty() && !book.author.empty()) {
+      existing.author = book.author;
+    }
+    if (existing.coverBmpPath.empty() && !book.coverBmpPath.empty()) {
+      existing.coverBmpPath = book.coverBmpPath;
+    }
+  }
+
+  recentBooks = std::move(normalized);
+  if (recentBooks.size() > MAX_RECENT_BOOKS) {
+    recentBooks.resize(MAX_RECENT_BOOKS);
+  }
+}
+
+void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
+                               const std::string& coverBmpPath, const std::string& bookId) {
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  const std::string resolvedBookId =
+      !bookId.empty() ? bookId : (!normalizedPath.empty() ? BookIdentity::resolveStableBookId(normalizedPath) : "");
+
+  const int existingIndex = findBookIndex(normalizedPath, resolvedBookId);
+  if (existingIndex >= 0) {
+    recentBooks.erase(recentBooks.begin() + existingIndex);
+  }
+
+  recentBooks.insert(recentBooks.begin(), {resolvedBookId, normalizedPath, title, author, coverBmpPath});
+
   if (recentBooks.size() > MAX_RECENT_BOOKS) {
     recentBooks.resize(MAX_RECENT_BOOKS);
   }
@@ -41,11 +124,19 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
 }
 
 void RecentBooksStore::updateBook(const std::string& path, const std::string& title, const std::string& author,
-                                  const std::string& coverBmpPath) {
-  auto it =
-      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
-  if (it != recentBooks.end()) {
-    RecentBook& book = *it;
+                                  const std::string& coverBmpPath, const std::string& bookId) {
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  const std::string resolvedBookId =
+      !bookId.empty() ? bookId : (!normalizedPath.empty() ? BookIdentity::resolveStableBookId(normalizedPath) : "");
+  const int existingIndex = findBookIndex(normalizedPath, resolvedBookId);
+  if (existingIndex >= 0) {
+    RecentBook& book = recentBooks[existingIndex];
+    if (!resolvedBookId.empty()) {
+      book.bookId = resolvedBookId;
+    }
+    if (!normalizedPath.empty()) {
+      book.path = normalizedPath;
+    }
     book.title = title;
     book.author = author;
     book.coverBmpPath = coverBmpPath;
@@ -53,14 +144,13 @@ void RecentBooksStore::updateBook(const std::string& path, const std::string& ti
   }
 }
 
-bool RecentBooksStore::removeBook(const std::string& path) {
-  auto it =
-      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
-  if (it == recentBooks.end()) {
+bool RecentBooksStore::removeBook(const std::string& key) {
+  const int existingIndex = findBookIndex(key, key);
+  if (existingIndex < 0) {
     return false;
   }
 
-  recentBooks.erase(it);
+  recentBooks.erase(recentBooks.begin() + existingIndex);
   saveToFile();
   return true;
 }
@@ -85,17 +175,19 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
   if (FsHelpers::hasEpubExtension(lastBookFileName)) {
     Epub epub(path, "/.crosspoint");
     epub.load(false, true);
-    return RecentBook{path, epub.getTitle(), epub.getAuthor(), epub.getThumbBmpPath()};
+    return RecentBook{BookIdentity::resolveStableBookId(path), path, epub.getTitle(), epub.getAuthor(),
+                      epub.getThumbBmpPath()};
   } else if (FsHelpers::hasXtcExtension(lastBookFileName)) {
     // Handle XTC file
     Xtc xtc(path, "/.crosspoint");
     if (xtc.load()) {
-      return RecentBook{path, xtc.getTitle(), xtc.getAuthor(), xtc.getThumbBmpPath()};
+      return RecentBook{BookIdentity::resolveStableBookId(path), path, xtc.getTitle(), xtc.getAuthor(),
+                        xtc.getThumbBmpPath()};
     }
   } else if (FsHelpers::hasTxtExtension(lastBookFileName) || FsHelpers::hasMarkdownExtension(lastBookFileName)) {
-    return RecentBook{path, lastBookFileName, "", ""};
+    return RecentBook{BookIdentity::resolveStableBookId(path), path, lastBookFileName, "", ""};
   }
-  return RecentBook{path, "", "", ""};
+  return RecentBook{BookIdentity::resolveStableBookId(path), path, "", "", ""};
 }
 
 bool RecentBooksStore::loadFromFile() {
@@ -142,7 +234,7 @@ bool RecentBooksStore::loadFromBinaryFile() {
         std::string title, author;
         serialization::readString(inputFile, title);
         serialization::readString(inputFile, author);
-        recentBooks.push_back({path, title, author, ""});
+        recentBooks.push_back({BookIdentity::resolveStableBookId(path), path, title, author, ""});
       } else {
         recentBooks.push_back(book);
       }
@@ -168,7 +260,7 @@ bool RecentBooksStore::loadFromBinaryFile() {
         continue;
       }
 
-      recentBooks.push_back({path, title, author, coverBmpPath});
+      recentBooks.push_back({BookIdentity::resolveStableBookId(path), path, title, author, coverBmpPath});
     }
 
     if (omitted > 0) {
@@ -184,6 +276,7 @@ bool RecentBooksStore::loadFromBinaryFile() {
   }
 
   inputFile.close();
+  normalizeBooks();
   LOG_DBG("RBS", "Recent books loaded from binary file (%d entries)", static_cast<int>(recentBooks.size()));
   return true;
 }

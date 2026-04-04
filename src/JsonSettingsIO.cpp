@@ -17,6 +17,7 @@
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
+#include "util/BookIdentity.h"
 #include "util/ShortcutRegistry.h"
 #include "util/TimeZoneRegistry.h"
 
@@ -477,9 +478,11 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
 
 bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* path) {
   JsonDocument doc;
+  doc["formatVersion"] = 2;
   JsonArray arr = doc["books"].to<JsonArray>();
   for (const auto& book : store.getBooks()) {
     JsonObject obj = arr.add<JsonObject>();
+    obj["bookId"] = book.bookId;
     obj["path"] = book.path;
     obj["title"] = book.title;
     obj["author"] = book.author;
@@ -497,18 +500,24 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
     return false;
   }
 
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
   store.recentBooks.clear();
   JsonArray arr = doc["books"].as<JsonArray>();
   for (JsonObject obj : arr) {
     if (store.getCount() >= 10) break;
     RecentBook book;
+    book.bookId = obj["bookId"] | std::string("");
     book.path = obj["path"] | std::string("");
     book.title = obj["title"] | std::string("");
     book.author = obj["author"] | std::string("");
     book.coverBmpPath = obj["coverBmpPath"] | std::string("");
+    if (formatVersion < 2) {
+      book.bookId.clear();
+    }
     store.recentBooks.push_back(book);
   }
 
+  store.normalizeBooks();
   LOG_DBG("RBS", "Recent books loaded from file (%d entries)", store.getCount());
   return true;
 }
@@ -519,18 +528,24 @@ bool JsonSettingsIO::loadRecentBooksFromFile(RecentBooksStore& store, const char
     return false;
   }
 
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
   store.recentBooks.clear();
   JsonArray arr = doc["books"].as<JsonArray>();
   for (JsonObject obj : arr) {
     if (store.getCount() >= 10) break;
     RecentBook book;
+    book.bookId = obj["bookId"] | std::string("");
     book.path = obj["path"] | std::string("");
     book.title = obj["title"] | std::string("");
     book.author = obj["author"] | std::string("");
     book.coverBmpPath = obj["coverBmpPath"] | std::string("");
+    if (formatVersion < 2) {
+      book.bookId.clear();
+    }
     store.recentBooks.push_back(book);
   }
 
+  store.normalizeBooks();
   LOG_DBG("RBS", "Recent books loaded from file (%d entries)", store.getCount());
   return true;
 }
@@ -539,7 +554,7 @@ bool JsonSettingsIO::loadRecentBooksFromFile(RecentBooksStore& store, const char
 
 bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char* path) {
   JsonDocument doc;
-  doc["formatVersion"] = 2;
+  doc["formatVersion"] = 3;
 
   JsonArray days = doc["readingDays"].to<JsonArray>();
   for (const auto& day : store.getReadingDays()) {
@@ -558,7 +573,12 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
   JsonArray books = doc["books"].to<JsonArray>();
   for (const auto& book : store.getBooks()) {
     JsonObject obj = books.add<JsonObject>();
+    obj["bookId"] = book.bookId;
     obj["path"] = book.path;
+    JsonArray knownPaths = obj["knownPaths"].to<JsonArray>();
+    for (const auto& knownPath : book.knownPaths) {
+      knownPaths.add(knownPath);
+    }
     obj["title"] = book.title;
     obj["author"] = book.author;
     obj["coverBmpPath"] = book.coverBmpPath;
@@ -594,6 +614,7 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   store.books.clear();
   store.legacyReadingDays.clear();
   store.readingDays.clear();
+  store.dirty = false;
 
   const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
 
@@ -624,9 +645,16 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   JsonArray books = doc["books"].as<JsonArray>();
   for (JsonObject obj : books) {
     ReadingBookStats book;
+    book.bookId = obj["bookId"] | std::string("");
     book.path = obj["path"] | std::string("");
     if (book.path.empty()) {
       continue;
+    }
+    for (JsonVariant value : obj["knownPaths"].as<JsonArray>()) {
+      const std::string knownPath = value | std::string("");
+      if (!knownPath.empty()) {
+        book.knownPaths.push_back(knownPath);
+      }
     }
     book.title = obj["title"] | std::string("");
     book.author = obj["author"] | std::string("");
@@ -642,6 +670,9 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
     book.completed = obj["completed"] | false;
     if (formatVersion >= 2) {
       appendReadingDays(book.readingDays, obj["readingDays"].as<JsonArray>());
+    }
+    if (formatVersion < 3 || book.bookId.empty()) {
+      store.dirty = true;
     }
     store.books.push_back(std::move(book));
   }
@@ -660,6 +691,7 @@ bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const ch
   store.books.clear();
   store.legacyReadingDays.clear();
   store.readingDays.clear();
+  store.dirty = false;
 
   const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
 
@@ -690,9 +722,16 @@ bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const ch
   JsonArray books = doc["books"].as<JsonArray>();
   for (JsonObject obj : books) {
     ReadingBookStats book;
+    book.bookId = obj["bookId"] | std::string("");
     book.path = obj["path"] | std::string("");
     if (book.path.empty()) {
       continue;
+    }
+    for (JsonVariant value : obj["knownPaths"].as<JsonArray>()) {
+      const std::string knownPath = value | std::string("");
+      if (!knownPath.empty()) {
+        book.knownPaths.push_back(knownPath);
+      }
     }
     book.title = obj["title"] | std::string("");
     book.author = obj["author"] | std::string("");
@@ -709,6 +748,9 @@ bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const ch
     if (formatVersion >= 2) {
       appendReadingDays(book.readingDays, obj["readingDays"].as<JsonArray>());
     }
+    if (formatVersion < 3 || book.bookId.empty()) {
+      store.dirty = true;
+    }
     store.books.push_back(std::move(book));
   }
 
@@ -721,7 +763,7 @@ bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const ch
 
 bool JsonSettingsIO::saveAchievements(const AchievementsStore& store, const char* path) {
   JsonDocument doc;
-  doc["formatVersion"] = 1;
+  doc["formatVersion"] = 2;
   doc["accumulatedReadingMs"] = store.accumulatedReadingMs;
   doc["countedSessions"] = store.countedSessions;
   doc["totalBookmarksAdded"] = store.totalBookmarksAdded;
@@ -766,6 +808,7 @@ bool JsonSettingsIO::loadAchievements(AchievementsStore& store, const char* json
   store.startedBooks.clear();
   store.finishedBooks.clear();
   store.pendingUnlocks.clear();
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
 
   store.accumulatedReadingMs = doc["accumulatedReadingMs"] | static_cast<uint64_t>(0);
   store.countedSessions = doc["countedSessions"] | static_cast<uint32_t>(0);
@@ -791,16 +834,32 @@ bool JsonSettingsIO::loadAchievements(AchievementsStore& store, const char* json
   }
 
   for (JsonVariant value : doc["startedBooks"].as<JsonArray>()) {
-    const std::string pathValue = value | std::string("");
-    if (!pathValue.empty()) {
-      store.startedBooks.push_back(pathValue);
+    std::string bookKey = value | std::string("");
+    if (formatVersion < 2 && !bookKey.empty()) {
+      if (const auto* statsBook = READING_STATS.findMatchingBookForPath(bookKey)) {
+        bookKey = statsBook->bookId;
+      } else {
+        bookKey = BookIdentity::resolveStableBookId(bookKey);
+      }
+      store.dirty = true;
+    }
+    if (!bookKey.empty()) {
+      store.startedBooks.push_back(bookKey);
     }
   }
 
   for (JsonVariant value : doc["finishedBooks"].as<JsonArray>()) {
-    const std::string pathValue = value | std::string("");
-    if (!pathValue.empty()) {
-      store.finishedBooks.push_back(pathValue);
+    std::string bookKey = value | std::string("");
+    if (formatVersion < 2 && !bookKey.empty()) {
+      if (const auto* statsBook = READING_STATS.findMatchingBookForPath(bookKey)) {
+        bookKey = statsBook->bookId;
+      } else {
+        bookKey = BookIdentity::resolveStableBookId(bookKey);
+      }
+      store.dirty = true;
+    }
+    if (!bookKey.empty()) {
+      store.finishedBooks.push_back(bookKey);
     }
   }
 
@@ -817,6 +876,7 @@ bool JsonSettingsIO::loadAchievementsFromFile(AchievementsStore& store, const ch
   store.startedBooks.clear();
   store.finishedBooks.clear();
   store.pendingUnlocks.clear();
+  const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
 
   store.accumulatedReadingMs = doc["accumulatedReadingMs"] | static_cast<uint64_t>(0);
   store.countedSessions = doc["countedSessions"] | static_cast<uint32_t>(0);
@@ -842,16 +902,32 @@ bool JsonSettingsIO::loadAchievementsFromFile(AchievementsStore& store, const ch
   }
 
   for (JsonVariant value : doc["startedBooks"].as<JsonArray>()) {
-    const std::string pathValue = value | std::string("");
-    if (!pathValue.empty()) {
-      store.startedBooks.push_back(pathValue);
+    std::string bookKey = value | std::string("");
+    if (formatVersion < 2 && !bookKey.empty()) {
+      if (const auto* statsBook = READING_STATS.findMatchingBookForPath(bookKey)) {
+        bookKey = statsBook->bookId;
+      } else {
+        bookKey = BookIdentity::resolveStableBookId(bookKey);
+      }
+      store.dirty = true;
+    }
+    if (!bookKey.empty()) {
+      store.startedBooks.push_back(bookKey);
     }
   }
 
   for (JsonVariant value : doc["finishedBooks"].as<JsonArray>()) {
-    const std::string pathValue = value | std::string("");
-    if (!pathValue.empty()) {
-      store.finishedBooks.push_back(pathValue);
+    std::string bookKey = value | std::string("");
+    if (formatVersion < 2 && !bookKey.empty()) {
+      if (const auto* statsBook = READING_STATS.findMatchingBookForPath(bookKey)) {
+        bookKey = statsBook->bookId;
+      } else {
+        bookKey = BookIdentity::resolveStableBookId(bookKey);
+      }
+      store.dirty = true;
+    }
+    if (!bookKey.empty()) {
+      store.finishedBooks.push_back(bookKey);
     }
   }
 

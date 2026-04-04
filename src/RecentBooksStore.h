@@ -3,16 +3,20 @@
 #include <vector>
 
 struct RecentBook {
+  std::string bookId;
   std::string path;
   std::string title;
   std::string author;
   std::string coverBmpPath;
 
-  bool operator==(const RecentBook& other) const { return path == other.path; }
+  bool operator==(const RecentBook& other) const {
+    return !bookId.empty() && !other.bookId.empty() ? bookId == other.bookId : path == other.path;
+  }
 };
 
 class RecentBooksStore;
 namespace JsonSettingsIO {
+bool saveRecentBooks(const RecentBooksStore& store, const char* path);
 bool loadRecentBooks(RecentBooksStore& store, const char* json);
 bool loadRecentBooksFromFile(RecentBooksStore& store, const char* path);
 }  // namespace JsonSettingsIO
@@ -25,6 +29,7 @@ class RecentBooksStore {
 
   friend bool JsonSettingsIO::loadRecentBooks(RecentBooksStore&, const char*);
   friend bool JsonSettingsIO::loadRecentBooksFromFile(RecentBooksStore&, const char*);
+  friend bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore&, const char*);
 
  public:
   ~RecentBooksStore() = default;
@@ -34,11 +39,11 @@ class RecentBooksStore {
 
   // Add a book to the recent list (moves to front if already exists)
   void addBook(const std::string& path, const std::string& title, const std::string& author,
-               const std::string& coverBmpPath);
+               const std::string& coverBmpPath, const std::string& bookId = "");
 
   void updateBook(const std::string& path, const std::string& title, const std::string& author,
-                  const std::string& coverBmpPath);
-  bool removeBook(const std::string& path);
+                  const std::string& coverBmpPath, const std::string& bookId = "");
+  bool removeBook(const std::string& key);
 
   // Get the list of recent books (most recent first)
   const std::vector<RecentBook>& getBooks() const { return recentBooks; }
@@ -52,6 +57,9 @@ class RecentBooksStore {
   RecentBook getDataFromBook(std::string path) const;
 
  private:
+  int findBookIndex(const std::string& path, const std::string& bookId) const;
+  void normalizeBook(RecentBook& book);
+  void normalizeBooks();
   bool loadFromBinaryFile();
 };
 

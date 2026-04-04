@@ -2,6 +2,14 @@
 
 Brief firmware history for `cpr-vcodex`.
 
+## 1.2.0.2
+
+- reviewed the translation set after the book-id migration work and repaired damaged strings in the language files
+- normalized corrupted Hungarian and Lithuanian entries to clean text instead of leaving broken characters on device
+- fixed the damaged Italian `ReadMe > Stats` body text
+
+Version code: `2026040402`
+
 ## 1.2.0.1
 
 - rebased the fork onto the upstream `CrossPoint Reader 1.2.0` line

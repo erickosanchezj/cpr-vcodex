@@ -20,12 +20,19 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/AchievementPopupUtils.h"
+#include "util/BookIdentity.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
 constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format changes
+
+std::string getStableProgressPath(const std::string& bookId) {
+  return BookIdentity::getStableDataFilePath(bookId, "txt_progress.bin");
+}
+
+std::string getLegacyProgressPath(Txt& txt) { return txt.getCachePath() + "/progress.bin"; }
 
 void exitReaderToHomeOrStats(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& bookPath) {
   READING_STATS.endSession();
@@ -58,9 +65,10 @@ void TxtReaderActivity::onEnter() {
   // Save current txt as last opened file and add to recent books
   auto filePath = txt->getPath();
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
+  stableBookId = BookIdentity::resolveStableBookId(filePath);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+  RECENT_BOOKS.addBook(filePath, fileName, "", "", stableBookId);
   READING_STATS.beginSession(filePath, txt->getTitle(), "", txt->getCoverBmpPath(), 0, "", 0);
 
   // Trigger first update
@@ -429,7 +437,11 @@ void TxtReaderActivity::saveProgress() const {
       totalPages > 0 ? static_cast<uint8_t>(std::min(100, ((currentPage + 1) * 100) / totalPages)) : 0;
   READING_STATS.updateProgress(progressPercent, totalPages > 0 && currentPage + 1 >= totalPages, "", progressPercent);
   FsFile f;
-  if (Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
+  const std::string progressPath = getStableProgressPath(stableBookId);
+  if (!progressPath.empty()) {
+    BookIdentity::ensureStableDataDir(stableBookId);
+  }
+  if (Storage.openFileForWrite("TRS", progressPath.empty() ? getLegacyProgressPath(*txt) : progressPath, f)) {
     uint8_t data[4];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
@@ -442,7 +454,17 @@ void TxtReaderActivity::saveProgress() const {
 
 void TxtReaderActivity::loadProgress() {
   FsFile f;
-  if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
+  const std::string progressPath = getStableProgressPath(stableBookId);
+  const std::string legacyProgressPath = getLegacyProgressPath(*txt);
+  bool loadedLegacyProgress = false;
+  bool openedProgress = false;
+  if (!progressPath.empty() && Storage.openFileForRead("TRS", progressPath, f)) {
+    openedProgress = true;
+  } else if (Storage.openFileForRead("TRS", legacyProgressPath, f)) {
+    loadedLegacyProgress = true;
+    openedProgress = true;
+  }
+  if (openedProgress) {
     uint8_t data[4];
     if (f.read(data, 4) == 4) {
       currentPage = data[0] + (data[1] << 8);
@@ -455,6 +477,9 @@ void TxtReaderActivity::loadProgress() {
       LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
     }
     f.close();
+    if (loadedLegacyProgress) {
+      saveProgress();
+    }
   }
 }
 

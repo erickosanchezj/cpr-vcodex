@@ -25,10 +25,17 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/AchievementPopupUtils.h"
+#include "util/BookIdentity.h"
 
 namespace {
 constexpr unsigned long skipPageMs = 700;
 constexpr unsigned long goHomeMs = 1000;
+
+std::string getStableProgressPath(const std::string& bookId) {
+  return BookIdentity::getStableDataFilePath(bookId, "xtc_progress.bin");
+}
+
+std::string getLegacyProgressPath(Xtc& xtc) { return xtc.getCachePath() + "/progress.bin"; }
 
 const xtc::ChapterInfo* findCurrentChapter(Xtc& xtc, const uint32_t currentPage) {
   if (!xtc.hasChapters()) {
@@ -92,6 +99,7 @@ void XtcReaderActivity::onEnter() {
   }
 
   xtc->setupCacheDir();
+  stableBookId = BookIdentity::resolveStableBookId(xtc->getPath());
 
   // Load saved progress
   loadProgress();
@@ -99,7 +107,7 @@ void XtcReaderActivity::onEnter() {
   // Save current XTC as last opened book and add to recent books
   APP_STATE.openEpubPath = xtc->getPath();
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
+  RECENT_BOOKS.addBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath(), stableBookId);
   READING_STATS.beginSession(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getCoverBmpPath(),
                              xtc->calculateProgress(currentPage), getChapterTitleForStats(*xtc, currentPage),
                              getChapterProgressForStats(*xtc, currentPage));
@@ -403,7 +411,11 @@ void XtcReaderActivity::saveProgress() const {
   READING_STATS.updateProgress(xtc->calculateProgress(currentPage), currentPage + 1 >= xtc->getPageCount(),
                                getChapterTitleForStats(*xtc, currentPage), getChapterProgressForStats(*xtc, currentPage));
   FsFile f;
-  if (Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
+  const std::string progressPath = getStableProgressPath(stableBookId);
+  if (!progressPath.empty()) {
+    BookIdentity::ensureStableDataDir(stableBookId);
+  }
+  if (Storage.openFileForWrite("XTR", progressPath.empty() ? getLegacyProgressPath(*xtc) : progressPath, f)) {
     uint8_t data[4];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
@@ -416,7 +428,17 @@ void XtcReaderActivity::saveProgress() const {
 
 void XtcReaderActivity::loadProgress() {
   FsFile f;
-  if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
+  const std::string progressPath = getStableProgressPath(stableBookId);
+  const std::string legacyProgressPath = getLegacyProgressPath(*xtc);
+  bool loadedLegacyProgress = false;
+  bool openedProgress = false;
+  if (!progressPath.empty() && Storage.openFileForRead("XTR", progressPath, f)) {
+    openedProgress = true;
+  } else if (Storage.openFileForRead("XTR", legacyProgressPath, f)) {
+    openedProgress = true;
+    loadedLegacyProgress = true;
+  }
+  if (openedProgress) {
     uint8_t data[4];
     if (f.read(data, 4) == 4) {
       currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
@@ -428,5 +450,8 @@ void XtcReaderActivity::loadProgress() {
       }
     }
     f.close();
+    if (loadedLegacyProgress) {
+      saveProgress();
+    }
   }
 }

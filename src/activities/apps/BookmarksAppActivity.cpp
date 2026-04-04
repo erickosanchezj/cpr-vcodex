@@ -35,18 +35,18 @@ void BookmarksAppActivity::refreshEntries() {
   entries.clear();
 
   for (const auto& book : READING_STATS.getBooks()) {
-    if (!FsHelpers::hasEpubExtension(book.path) || !Storage.exists(book.path.c_str())) {
+    if (book.bookId.empty() || !FsHelpers::hasEpubExtension(book.path) || !Storage.exists(book.path.c_str())) {
       continue;
     }
 
-    Epub epub(book.path, "/.crosspoint");
     BookmarkStore store;
-    store.load(epub.getCachePath());
+    store.load("", book.bookId);
     if (store.isEmpty()) {
       continue;
     }
 
     entries.push_back(BookEntry{
+        .bookId = book.bookId,
         .path = book.path,
         .title = getDisplayTitle(book),
         .author = book.author,
@@ -68,10 +68,9 @@ void BookmarksAppActivity::openSelectedBook() {
   startActivityForResult(
       std::make_unique<BookmarksActivity>(
           renderer, mappedInput, entry.bookmarks, nullptr, entry.title,
-          [path = entry.path](const BookmarkStore::Bookmark& bookmark) {
-            Epub epub(path, "/.crosspoint");
+          [path = entry.path, bookId = entry.bookId](const BookmarkStore::Bookmark& bookmark) {
             BookmarkStore store;
-            store.load(epub.getCachePath());
+            store.load("", bookId);
             const bool removed = store.remove(bookmark.spineIndex, bookmark.pageNumber);
             if (removed) {
               store.save();
@@ -89,10 +88,9 @@ void BookmarksAppActivity::openSelectedBook() {
       });
 }
 
-bool BookmarksAppActivity::clearBookmarksForBook(const std::string& path) const {
-  Epub epub(path, "/.crosspoint");
+bool BookmarksAppActivity::clearBookmarksForBook(const std::string&, const std::string& bookId) const {
   BookmarkStore store;
-  store.load(epub.getCachePath());
+  store.load("", bookId);
   if (store.isEmpty()) {
     return true;
   }
@@ -110,9 +108,9 @@ void BookmarksAppActivity::confirmDeleteSelectedBook() {
   const BookEntry entry = entries[selectedIndex];
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_ALL_BOOKMARKS), entry.title),
-      [this, path = entry.path](const ActivityResult& result) {
+      [this, path = entry.path, bookId = entry.bookId](const ActivityResult& result) {
         if (!result.isCancelled) {
-          clearBookmarksForBook(path);
+          clearBookmarksForBook(path, bookId);
           refreshEntries();
         }
         requestUpdate();

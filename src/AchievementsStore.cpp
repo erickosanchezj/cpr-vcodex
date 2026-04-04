@@ -38,13 +38,12 @@ uint32_t countSessionsFromStats() {
 uint32_t countCurrentBookmarksFromStats() {
   uint32_t count = 0;
   for (const auto& book : READING_STATS.getBooks()) {
-    if (book.path.empty() || !Storage.exists(book.path.c_str())) {
+    if (book.bookId.empty()) {
       continue;
     }
 
-    Epub epub(book.path, "/.crosspoint");
     BookmarkStore store;
-    store.load(epub.getCachePath());
+    store.load("", book.bookId);
     count += static_cast<uint32_t>(store.getAll().size());
   }
   return count;
@@ -366,12 +365,12 @@ void AchievementsStore::bootstrapFromCurrentStats() {
   finishedBooks.clear();
 
   for (const auto& book : READING_STATS.getBooks()) {
-    if (book.path.empty()) {
+    if (book.bookId.empty()) {
       continue;
     }
-    startedBooks.push_back(book.path);
+    startedBooks.push_back(book.bookId);
     if (book.completed) {
-      finishedBooks.push_back(book.path);
+      finishedBooks.push_back(book.bookId);
     }
   }
 
@@ -421,14 +420,15 @@ void AchievementsStore::reconcileFromCurrentStats() {
 
 void AchievementsStore::recordSessionEnded(const ReadingSessionSnapshot& snapshot) {
   if (!SETTINGS.achievementsEnabled || !snapshot.valid || snapshot.serial == 0 ||
-      snapshot.serial == lastProcessedSessionSerial || snapshot.path.empty()) {
+      snapshot.serial == lastProcessedSessionSerial || (snapshot.bookId.empty() && snapshot.path.empty())) {
     return;
   }
 
   lastProcessedSessionSerial = snapshot.serial;
+  const std::string bookKey = !snapshot.bookId.empty() ? snapshot.bookId : snapshot.path;
 
-  if (!hasString(startedBooks, snapshot.path)) {
-    startedBooks.push_back(snapshot.path);
+  if (!hasString(startedBooks, bookKey)) {
+    startedBooks.push_back(bookKey);
     markDirty();
   }
 
@@ -438,8 +438,8 @@ void AchievementsStore::recordSessionEnded(const ReadingSessionSnapshot& snapsho
     ++countedSessions;
   }
 
-  if (snapshot.completedThisSession && !hasString(finishedBooks, snapshot.path)) {
-    finishedBooks.push_back(snapshot.path);
+  if (snapshot.completedThisSession && !hasString(finishedBooks, bookKey)) {
+    finishedBooks.push_back(bookKey);
     markDirty();
   }
 
@@ -600,17 +600,17 @@ void AchievementsStore::reset() {
 
 void AchievementsStore::syncWithPreviousStats() {
   for (const auto& book : READING_STATS.getBooks()) {
-    if (book.path.empty()) {
+    if (book.bookId.empty()) {
       continue;
     }
 
-    if (!hasString(startedBooks, book.path)) {
-      startedBooks.push_back(book.path);
+    if (!hasString(startedBooks, book.bookId)) {
+      startedBooks.push_back(book.bookId);
       markDirty();
     }
 
-    if (book.completed && !hasString(finishedBooks, book.path)) {
-      finishedBooks.push_back(book.path);
+    if (book.completed && !hasString(finishedBooks, book.bookId)) {
+      finishedBooks.push_back(book.bookId);
       markDirty();
     }
   }

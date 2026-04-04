@@ -13,6 +13,7 @@
 
 class XtcReaderActivity final : public Activity {
   std::shared_ptr<Xtc> xtc;
+  std::string stableBookId;
 
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;

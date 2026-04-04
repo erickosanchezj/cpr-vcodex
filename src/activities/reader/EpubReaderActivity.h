@@ -30,6 +30,7 @@ class EpubReaderActivity final : public Activity {
   bool automaticPageTurnActive = false;
   int initialBookmarkSpineIndex = -1;
   int initialBookmarkPage = -1;
+  std::string stableBookId;
   BookmarkStore bookmarkStore;
 
   // Footnote support

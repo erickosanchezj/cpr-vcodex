@@ -14,7 +14,9 @@ struct ReadingDayStats {
 };
 
 struct ReadingBookStats {
+  std::string bookId;
   std::string path;
+  std::vector<std::string> knownPaths;
   std::string title;
   std::string author;
   std::string coverBmpPath;
@@ -33,6 +35,7 @@ struct ReadingBookStats {
 struct ReadingSessionSnapshot {
   bool valid = false;
   uint32_t serial = 0;
+  std::string bookId;
   std::string path;
   uint32_t sessionMs = 0;
   bool counted = false;
@@ -87,8 +90,17 @@ class ReadingStatsStore {
   friend bool JsonSettingsIO::loadReadingStats(ReadingStatsStore&, const char*);
   friend bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore&, const char*);
 
+  size_t findBookIndexByPath(const std::string& path) const;
+  size_t findBookIndexByBookId(const std::string& bookId) const;
+  size_t findLegacyMergeCandidate(const std::string& path, const std::string& title = "",
+                                  const std::string& author = "") const;
+  void mergeBookInto(ReadingBookStats& primary, const ReadingBookStats& duplicate);
+  void normalizeBook(ReadingBookStats& book);
+  void normalizeBooks();
+  void rememberBookPath(ReadingBookStats& book, const std::string& path);
+  void rememberBookIdAlias(ReadingBookStats& book, const std::string& bookId);
   size_t getOrCreateBookIndex(const std::string& path, const std::string& title, const std::string& author,
-                              const std::string& coverBmpPath);
+                              const std::string& coverBmpPath, const std::string& preferredBookId = "");
   void touchBook(size_t index);
   ReadingDayStats& getOrCreateReadingDay(uint32_t epochSeconds);
   ReadingDayStats& getOrCreateBookReadingDay(ReadingBookStats& book, uint32_t epochSeconds);
@@ -123,7 +135,9 @@ class ReadingStatsStore {
   bool updateBookMetadata(const std::string& path, const std::string& title, const std::string& author,
                           const std::string& coverBmpPath);
   bool removeBook(const std::string& path);
-  const ReadingBookStats* findBook(const std::string& path) const;
+  const ReadingBookStats* findBook(const std::string& key) const;
+  const ReadingBookStats* findMatchingBookForPath(const std::string& path, const std::string& title = "",
+                                                  const std::string& author = "") const;
   const ReadingSessionSnapshot& getLastSessionSnapshot() const { return lastSessionSnapshot; }
 
   const std::vector<ReadingBookStats>& getBooks() const { return books; }

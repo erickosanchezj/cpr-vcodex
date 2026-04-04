@@ -9,6 +9,7 @@
 
 class BookmarksAppActivity final : public Activity {
   struct BookEntry {
+    std::string bookId;
     std::string path;
     std::string title;
     std::string author;
@@ -21,7 +22,7 @@ class BookmarksAppActivity final : public Activity {
 
   void refreshEntries();
   void openSelectedBook();
-  bool clearBookmarksForBook(const std::string& path) const;
+  bool clearBookmarksForBook(const std::string& path, const std::string& bookId) const;
   void confirmDeleteSelectedBook();
 
  public:

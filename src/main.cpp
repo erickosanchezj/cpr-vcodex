@@ -309,9 +309,9 @@ void setup() {
   activityManager.goToBoot();
 
   APP_STATE.loadFromFile();
-  RECENT_BOOKS.loadFromFile();
   READING_STATS.loadFromFile();
   ACHIEVEMENTS.loadFromFile();
+  RECENT_BOOKS.loadFromFile();
 
   // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
   // crashed (indicated by readerActivityLoadCount > 0)

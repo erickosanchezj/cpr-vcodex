@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "util/BookIdentity.h"
+
 // Stores per-book bookmarks inside the reader cache directory.
 class BookmarkStore {
  public:
@@ -17,13 +19,31 @@ class BookmarkStore {
     std::string snippet;
   };
 
-  void load(const std::string& cachePath) {
-    basePath = cachePath;
+  void load(const std::string& cachePath, const std::string& bookId = "") {
+    storagePath.clear();
+    legacyPath.clear();
+    if (!bookId.empty()) {
+      BookIdentity::ensureStableDataDir(bookId);
+      storagePath = BookIdentity::getStableDataFilePath(bookId, "bookmarks.bin");
+      if (!cachePath.empty()) {
+        legacyPath = cachePath + "/bookmarks.bin";
+      }
+    } else {
+      storagePath = cachePath.empty() ? "" : (cachePath + "/bookmarks.bin");
+    }
     bookmarks.clear();
     dirty = false;
 
     FsFile file;
+    bool loadedLegacyPath = false;
     if (!Storage.openFileForRead("BKM", getFilePath(), file)) {
+      if (storagePath != legacyPath || legacyPath.empty() || !Storage.openFileForRead("BKM", legacyPath, file)) {
+        return;
+      }
+      loadedLegacyPath = true;
+    }
+
+    if (getFilePath().empty()) {
       return;
     }
 
@@ -70,10 +90,15 @@ class BookmarkStore {
     }
 
     file.close();
+
+    if (loadedLegacyPath && !storagePath.empty()) {
+      dirty = true;
+      save();
+    }
   }
 
   void save() {
-    if (!dirty || basePath.empty()) {
+    if (!dirty || storagePath.empty()) {
       return;
     }
 
@@ -157,10 +182,11 @@ class BookmarkStore {
   static constexpr uint8_t MAX_SNIPPET_LEN = 80;
 
   std::vector<Bookmark> bookmarks;
-  std::string basePath;
+  std::string storagePath;
+  std::string legacyPath;
   bool dirty = false;
 
-  [[nodiscard]] std::string getFilePath() const { return basePath + "/bookmarks.bin"; }
+  [[nodiscard]] std::string getFilePath() const { return storagePath; }
 
   std::vector<Bookmark>::iterator find(const uint16_t spineIndex, const uint16_t pageNumber) {
     return std::find_if(bookmarks.begin(), bookmarks.end(), [spineIndex, pageNumber](const Bookmark& bookmark) {

@@ -9,6 +9,7 @@
 #include <ctime>
 
 #include "CrossPointState.h"
+#include "util/BookIdentity.h"
 #include "util/TimeUtils.h"
 
 namespace {
@@ -69,36 +70,257 @@ void addReadingToDays(std::vector<ReadingDayStats>& days, const uint32_t dayOrdi
     it->readingMs += readingMs;
   }
 }
+
+bool containsString(const std::vector<std::string>& values, const std::string& value) {
+  return !value.empty() && std::find(values.begin(), values.end(), value) != values.end();
+}
+
+void dedupeStrings(std::vector<std::string>& values) {
+  values.erase(std::remove_if(values.begin(), values.end(), [](const std::string& value) { return value.empty(); }),
+               values.end());
+  std::sort(values.begin(), values.end());
+  values.erase(std::unique(values.begin(), values.end()), values.end());
+}
 }  // namespace
 
 ReadingStatsStore ReadingStatsStore::instance;
 
+size_t ReadingStatsStore::findBookIndexByPath(const std::string& path) const {
+  if (path.empty()) {
+    return books.size();
+  }
+
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  for (size_t index = 0; index < books.size(); ++index) {
+    const auto& book = books[index];
+    if (book.path == normalizedPath || containsString(book.knownPaths, normalizedPath)) {
+      return index;
+    }
+  }
+  return books.size();
+}
+
+size_t ReadingStatsStore::findBookIndexByBookId(const std::string& bookId) const {
+  if (bookId.empty()) {
+    return books.size();
+  }
+
+  for (size_t index = 0; index < books.size(); ++index) {
+    if (books[index].bookId == bookId) {
+      return index;
+    }
+  }
+  return books.size();
+}
+
+size_t ReadingStatsStore::findLegacyMergeCandidate(const std::string& path, const std::string& title,
+                                                   const std::string& author) const {
+  const std::string extension = BookIdentity::getFileExtensionLower(path);
+  size_t candidateIndex = books.size();
+
+  for (size_t index = 0; index < books.size(); ++index) {
+    const auto& book = books[index];
+    if (!BookIdentity::isLegacyBookId(book.bookId) && Storage.exists(book.path.c_str())) {
+      continue;
+    }
+    if (title.empty() || book.title.empty() || book.title != title) {
+      continue;
+    }
+    if (!author.empty() && !book.author.empty() && book.author != author) {
+      continue;
+    }
+    if (!extension.empty() && BookIdentity::getFileExtensionLower(book.path) != extension) {
+      continue;
+    }
+
+    if (candidateIndex != books.size()) {
+      return books.size();
+    }
+    candidateIndex = index;
+  }
+
+  return candidateIndex;
+}
+
+void ReadingStatsStore::rememberBookPath(ReadingBookStats& book, const std::string& path) {
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  if (normalizedPath.empty()) {
+    return;
+  }
+
+  if (!containsString(book.knownPaths, normalizedPath)) {
+    book.knownPaths.push_back(normalizedPath);
+  }
+  book.path = normalizedPath;
+  dedupeStrings(book.knownPaths);
+}
+
+void ReadingStatsStore::rememberBookIdAlias(ReadingBookStats&, const std::string&) {}
+
+void ReadingStatsStore::mergeBookInto(ReadingBookStats& primary, const ReadingBookStats& duplicate) {
+  const uint32_t primaryLastReadAtBefore = primary.lastReadAt;
+
+  if (primary.bookId.empty() || (BookIdentity::isLegacyBookId(primary.bookId) && !BookIdentity::isLegacyBookId(duplicate.bookId))) {
+    primary.bookId = duplicate.bookId;
+  }
+
+  if (!duplicate.path.empty() && !containsString(primary.knownPaths, duplicate.path)) {
+    primary.knownPaths.push_back(duplicate.path);
+  }
+  for (const auto& knownPath : duplicate.knownPaths) {
+    if (!containsString(primary.knownPaths, knownPath)) {
+      primary.knownPaths.push_back(knownPath);
+    }
+  }
+  dedupeStrings(primary.knownPaths);
+
+  if ((!primary.path.empty() && !Storage.exists(primary.path.c_str()) && !duplicate.path.empty() &&
+       Storage.exists(duplicate.path.c_str())) ||
+      (!duplicate.path.empty() && duplicate.lastReadAt > primaryLastReadAtBefore)) {
+    primary.path = duplicate.path;
+  }
+
+  if (primary.title.empty() || (!duplicate.title.empty() && duplicate.lastReadAt >= primary.lastReadAt)) {
+    primary.title = duplicate.title;
+  }
+  if (primary.author.empty() || (!duplicate.author.empty() && duplicate.lastReadAt >= primary.lastReadAt)) {
+    primary.author = duplicate.author;
+  }
+  if (primary.coverBmpPath.empty() || (!duplicate.coverBmpPath.empty() && duplicate.lastReadAt >= primary.lastReadAt)) {
+    primary.coverBmpPath = duplicate.coverBmpPath;
+  }
+  if (primary.chapterTitle.empty() || (!duplicate.chapterTitle.empty() && duplicate.lastReadAt >= primary.lastReadAt)) {
+    primary.chapterTitle = duplicate.chapterTitle;
+  }
+
+  primary.totalReadingMs += duplicate.totalReadingMs;
+  primary.sessions += duplicate.sessions;
+  primary.lastSessionMs = std::max(primary.lastSessionMs, duplicate.lastSessionMs);
+  if (primary.firstReadAt == 0 || (duplicate.firstReadAt != 0 && duplicate.firstReadAt < primary.firstReadAt)) {
+    primary.firstReadAt = duplicate.firstReadAt;
+  }
+  primary.lastReadAt = std::max(primary.lastReadAt, duplicate.lastReadAt);
+  if (duplicate.lastReadAt >= primary.lastReadAt) {
+    primary.lastProgressPercent = duplicate.lastProgressPercent;
+    primary.chapterProgressPercent = duplicate.chapterProgressPercent;
+  } else {
+    primary.lastProgressPercent = std::max(primary.lastProgressPercent, duplicate.lastProgressPercent);
+    primary.chapterProgressPercent = std::max(primary.chapterProgressPercent, duplicate.chapterProgressPercent);
+  }
+  primary.completed = primary.completed || duplicate.completed;
+  primary.readingDays.insert(primary.readingDays.end(), duplicate.readingDays.begin(), duplicate.readingDays.end());
+  normalizeReadingDays(primary.readingDays);
+}
+
+void ReadingStatsStore::normalizeBook(ReadingBookStats& book) {
+  if (book.bookId.empty()) {
+    book.bookId = BookIdentity::resolveStableBookId(book.path);
+  }
+  if (book.path.empty() && !book.knownPaths.empty()) {
+    book.path = book.knownPaths.front();
+  }
+  rememberBookPath(book, book.path);
+  normalizeReadingDays(book.readingDays);
+}
+
+void ReadingStatsStore::normalizeBooks() {
+  for (auto& book : books) {
+    normalizeBook(book);
+  }
+
+  for (size_t primaryIndex = 0; primaryIndex < books.size(); ++primaryIndex) {
+    size_t duplicateIndex = primaryIndex + 1;
+    while (duplicateIndex < books.size()) {
+      if (!books[primaryIndex].bookId.empty() && books[primaryIndex].bookId == books[duplicateIndex].bookId) {
+        mergeBookInto(books[primaryIndex], books[duplicateIndex]);
+        books.erase(books.begin() + static_cast<std::ptrdiff_t>(duplicateIndex));
+        continue;
+      }
+      ++duplicateIndex;
+    }
+  }
+}
+
 size_t ReadingStatsStore::getOrCreateBookIndex(const std::string& path, const std::string& title,
-                                               const std::string& author, const std::string& coverBmpPath) {
-  auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
-  if (it == books.end()) {
-    books.insert(books.begin(), ReadingBookStats{path, title, author, coverBmpPath});
+                                               const std::string& author, const std::string& coverBmpPath,
+                                               const std::string& preferredBookId) {
+  const std::string normalizedPath = BookIdentity::normalizePath(path);
+  const std::string resolvedBookId =
+      !preferredBookId.empty() ? preferredBookId : BookIdentity::resolveStableBookId(normalizedPath);
+
+  size_t index = findBookIndexByPath(normalizedPath);
+  if (index == books.size() && !resolvedBookId.empty()) {
+    index = findBookIndexByBookId(resolvedBookId);
+  }
+  if (index == books.size()) {
+    index = findLegacyMergeCandidate(normalizedPath, title, author);
+  }
+
+  if (index == books.size()) {
+    ReadingBookStats book;
+    book.bookId = resolvedBookId;
+    book.path = normalizedPath;
+    if (!normalizedPath.empty()) {
+      book.knownPaths.push_back(normalizedPath);
+    }
+    book.title = title;
+    book.author = author;
+    book.coverBmpPath = coverBmpPath;
+    books.insert(books.begin(), std::move(book));
     return 0;
   }
 
+  auto& book = books[index];
+  if (book.bookId.empty() || (BookIdentity::isLegacyBookId(book.bookId) && !BookIdentity::isLegacyBookId(resolvedBookId))) {
+    book.bookId = resolvedBookId;
+  }
+  rememberBookPath(book, normalizedPath);
   if (!title.empty()) {
-    it->title = title;
+    book.title = title;
   }
   if (!author.empty()) {
-    it->author = author;
+    book.author = author;
   }
   if (!coverBmpPath.empty()) {
-    it->coverBmpPath = coverBmpPath;
+    book.coverBmpPath = coverBmpPath;
   }
-  return static_cast<size_t>(std::distance(books.begin(), it));
+  return index;
 }
 
-const ReadingBookStats* ReadingStatsStore::findBook(const std::string& path) const {
+const ReadingBookStats* ReadingStatsStore::findBook(const std::string& key) const {
+  if (shouldIgnorePath(key)) {
+    return nullptr;
+  }
+
+  const size_t pathIndex = findBookIndexByPath(key);
+  if (pathIndex < books.size()) {
+    return &books[pathIndex];
+  }
+
+  const size_t bookIdIndex = findBookIndexByBookId(key);
+  return bookIdIndex < books.size() ? &books[bookIdIndex] : nullptr;
+}
+
+const ReadingBookStats* ReadingStatsStore::findMatchingBookForPath(const std::string& path, const std::string& title,
+                                                                   const std::string& author) const {
   if (shouldIgnorePath(path)) {
     return nullptr;
   }
-  auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
-  return it == books.end() ? nullptr : &(*it);
+
+  if (const auto* exactBook = findBook(path)) {
+    return exactBook;
+  }
+
+  const std::string resolvedBookId = BookIdentity::calculateContentBookId(path);
+  if (!resolvedBookId.empty()) {
+    const size_t bookIdIndex = findBookIndexByBookId(resolvedBookId);
+    if (bookIdIndex < books.size()) {
+      return &books[bookIdIndex];
+    }
+  }
+
+  const size_t legacyIndex = findLegacyMergeCandidate(path, title, author);
+  return legacyIndex < books.size() ? &books[legacyIndex] : nullptr;
 }
 
 ReadingDayStats& ReadingStatsStore::getOrCreateReadingDay(const uint32_t epochSeconds) {
@@ -260,10 +482,8 @@ void ReadingStatsStore::rebuildSummaryCache() const {
   }
 
   if (cache.referenceDayOrdinal != 0) {
-    const uint32_t start7DayOrdinal =
-        (cache.referenceDayOrdinal >= 6) ? (cache.referenceDayOrdinal - 6) : 0;
-    const uint32_t start30DayOrdinal =
-        (cache.referenceDayOrdinal >= 29) ? (cache.referenceDayOrdinal - 29) : 0;
+    const uint32_t start7DayOrdinal = (cache.referenceDayOrdinal >= 6) ? (cache.referenceDayOrdinal - 6) : 0;
+    const uint32_t start30DayOrdinal = (cache.referenceDayOrdinal >= 29) ? (cache.referenceDayOrdinal - 29) : 0;
 
     std::vector<uint32_t> eligibleDays;
     eligibleDays.reserve(readingDays.size());
@@ -333,7 +553,8 @@ void ReadingStatsStore::beginSession(const std::string& path, const std::string&
     return;
   }
 
-  size_t index = getOrCreateBookIndex(path, title, author, coverBmpPath);
+  const std::string resolvedBookId = BookIdentity::resolveStableBookId(path);
+  size_t index = getOrCreateBookIndex(path, title, author, coverBmpPath, resolvedBookId);
   touchBook(index);
 
   auto& book = books[0];
@@ -440,10 +661,11 @@ bool ReadingStatsStore::updateBookMetadata(const std::string& path, const std::s
     return false;
   }
 
-  auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
-  if (it == books.end()) {
+  const size_t index = findBookIndexByPath(path);
+  if (index >= books.size()) {
     return false;
   }
+  auto it = books.begin() + static_cast<std::ptrdiff_t>(index);
 
   bool changed = false;
   if (!title.empty() && it->title != title) {
@@ -469,13 +691,14 @@ bool ReadingStatsStore::updateBookMetadata(const std::string& path, const std::s
 }
 
 bool ReadingStatsStore::removeBook(const std::string& path) {
-  auto it = std::find_if(books.begin(), books.end(), [&](const ReadingBookStats& book) { return book.path == path; });
-  if (it == books.end()) {
+  const size_t index = findBookIndexByPath(path);
+  if (index >= books.size()) {
     return false;
   }
 
+  auto it = books.begin() + static_cast<std::ptrdiff_t>(index);
   const bool hadBookReadingDays = !it->readingDays.empty();
-  const size_t removedIndex = static_cast<size_t>(std::distance(books.begin(), it));
+  const size_t removedIndex = index;
   books.erase(it);
 
   if (activeSession.active) {
@@ -516,6 +739,7 @@ void ReadingStatsStore::endSession() {
 
   lastSessionSnapshot.valid = true;
   lastSessionSnapshot.serial = ++sessionSerialCounter;
+  lastSessionSnapshot.bookId = book.bookId;
   lastSessionSnapshot.path = book.path;
   lastSessionSnapshot.sessionMs = sessionMs;
   lastSessionSnapshot.counted = countedSession;
@@ -638,9 +862,7 @@ bool ReadingStatsStore::importFromFile(const std::string& path) {
   }
 
   normalizeReadingDays(readingDays);
-  for (auto& book : books) {
-    normalizeReadingDays(book.readingDays);
-  }
+  normalizeBooks();
   activeSession = {};
   lastSessionSnapshot = {};
   sessionSerialCounter = 0;
@@ -672,10 +894,9 @@ bool ReadingStatsStore::loadFromFile() {
 
   const bool loaded = JsonSettingsIO::loadReadingStatsFromFile(*this, READING_STATS_FILE_JSON);
   if (loaded) {
+    const bool needsSave = dirty;
     normalizeReadingDays(readingDays);
-    for (auto& book : books) {
-      normalizeReadingDays(book.readingDays);
-    }
+    normalizeBooks();
     removeIgnoredBooks();
     rebuildAggregatedReadingDays();
     const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
@@ -685,9 +906,14 @@ bool ReadingStatsStore::loadFromFile() {
     activeSession = {};
     lastSessionSnapshot = {};
     sessionSerialCounter = 0;
-    dirty = false;
-    lastSaveMs = millis();
     invalidateSummaryCache();
+    if (needsSave) {
+      markDirty();
+      saveToFile();
+    } else {
+      dirty = false;
+      lastSaveMs = millis();
+    }
   }
   return loaded;
 }
