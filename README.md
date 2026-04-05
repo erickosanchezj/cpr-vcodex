@@ -35,7 +35,7 @@ This project is **not affiliated with Xteink**.
 | Base firmware | `CrossPoint Reader 1.2.0` |
 | Device | Xteink X4 |
 | Current release (vCodex) | `1.2.0.3` |
-| Version code | `2026040501` |
+| Version code | `2026040503` |
 | Release notes | [CHANGELOG.md](./CHANGELOG.md) |
 | Recommended install | browser OTA fast flash |
 
@@ -448,7 +448,7 @@ Each firmware build now keeps the base project version and the fork release sepa
 
 - `crosspoint.version`: the upstream base release, currently `1.2.0`
 - `vcodex.version`: the fork release shown to the user, currently `1.2.0.3`
-- `vcodex.version_code`: the exact build identifier, currently `2026040501`
+- `vcodex.version_code`: the exact build identifier, currently `2026040503`
 
 The firmware UI keeps showing the fork version to avoid confusion, while the base version remains available as metadata for tracking upstream sync.
 For a brief release history, see [CHANGELOG.md](./CHANGELOG.md).

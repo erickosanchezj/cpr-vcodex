@@ -3,10 +3,6 @@
 #include <ArduinoJson.h>
 #include <Logging.h>
 
-#include <algorithm>
-#include <array>
-#include <cctype>
-
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_wifi.h"
@@ -28,32 +24,39 @@ char* local_buf;
 int output_len;
 
 struct ParsedVersion {
-  std::array<int, 4> segments = {0, 0, 0, 0};
-  size_t count = 0;
+  int segments[4] = {0, 0, 0, 0};
+  uint8_t count = 0;
   bool valid = false;
   bool isRc = false;
 };
 
-ParsedVersion parseVersion(const std::string& version) {
+ParsedVersion parseVersion(const char* version) {
   ParsedVersion parsed;
-  parsed.isRc = version.find("-rc") != std::string::npos;
+  if (version == nullptr || *version == '\0') {
+    return parsed;
+  }
 
   int currentValue = -1;
-  for (const char ch : version) {
-    if (std::isdigit(static_cast<unsigned char>(ch))) {
+  for (const char* cursor = version; *cursor != '\0'; ++cursor) {
+    const char ch = *cursor;
+    if (ch >= '0' && ch <= '9') {
       currentValue = (currentValue < 0) ? (ch - '0') : (currentValue * 10 + (ch - '0'));
       continue;
     }
 
+    if (ch == '-' && cursor[1] == 'r' && cursor[2] == 'c') {
+      parsed.isRc = true;
+    }
+
     if (currentValue >= 0) {
-      if (parsed.count < parsed.segments.size()) {
+      if (parsed.count < 4) {
         parsed.segments[parsed.count++] = currentValue;
       }
       currentValue = -1;
     }
   }
 
-  if (currentValue >= 0 && parsed.count < parsed.segments.size()) {
+  if (currentValue >= 0 && parsed.count < 4) {
     parsed.segments[parsed.count++] = currentValue;
   }
 
@@ -62,8 +65,8 @@ ParsedVersion parseVersion(const std::string& version) {
 }
 
 int compareVersions(const ParsedVersion& left, const ParsedVersion& right) {
-  const size_t segmentCount = std::max(left.count, right.count);
-  for (size_t index = 0; index < segmentCount; ++index) {
+  const uint8_t segmentCount = (left.count > right.count) ? left.count : right.count;
+  for (uint8_t index = 0; index < segmentCount; ++index) {
     const int leftSegment = (index < left.count) ? left.segments[index] : 0;
     const int rightSegment = (index < right.count) ? right.segments[index] : 0;
     if (leftSegment != rightSegment) {
@@ -224,7 +227,7 @@ bool OtaUpdater::isUpdateNewer() const {
     return false;
   }
 
-  const ParsedVersion latest = parseVersion(latestVersion);
+  const ParsedVersion latest = parseVersion(latestVersion.c_str());
   const ParsedVersion current = parseVersion(CROSSPOINT_VERSION);
   if (!latest.valid || !current.valid) {
     return latestVersion != CROSSPOINT_VERSION;
