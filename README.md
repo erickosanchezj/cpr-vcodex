@@ -34,8 +34,8 @@ This project is **not affiliated with Xteink**.
 |---|---|
 | Base firmware | `CrossPoint Reader 1.2.0` |
 | Device | Xteink X4 |
-| Current release (vCodex) | `1.2.0.2` |
-| Version code | `2026040402` |
+| Current release (vCodex) | `1.2.0.3` |
+| Version code | `2026040501` |
 | Release notes | [CHANGELOG.md](./CHANGELOG.md) |
 | Recommended install | browser OTA fast flash |
 
@@ -70,6 +70,8 @@ For most users, this is the easiest way to install the firmware:
 | `If found, please return me` | lost-device contact screen fed by `/if_found.txt` on the SD card | [If found, please return me](#if-found-please-return-me) |
 | `Bookmarks` | EPUB bookmarks plus a global bookmarks app | [Bookmarks](#bookmarks) |
 | `Sleep tools` | folder selection, preview and sequential/shuffle behavior | [Sleep](#sleep) |
+| `Text Darkness` | darker anti-aliased reader text, adapted from the [`crosspet`](https://github.com/trilwu/crosspet) fork | [Settings](#settings) |
+| `Lexend reader font` | additional reader font family adapted from the [`crosspet`](https://github.com/trilwu/crosspet) fork | [Settings](#settings) |
 | `Date controls` | global date format and time zone settings | [Settings](#settings) |
 | `Configurable Daily Goal` | choose `15 / 30 / 45 / 60 min` and use that target for goal-based stats | [Reading analytics suite](#reading-analytics-suite) |
 
@@ -396,10 +398,15 @@ Main options:
 
 | Area | Options |
 |---|---|
+| Reader | `Text Anti-Aliasing`, `Text Darkness`, `Reader Font Family` with `Lexend` |
 | Date | `Display Day`, `Auto Sync Day`, `Date Format`, `Time Zone` |
 | Reading stats | `Daily Goal`, `Show after reading`, `Reset Reading Stats`, `Export Reading Stats`, `Import Reading Stats` |
 | Achievements | `Enable achievements`, `Achievement popups`, `Reset achievements`, `Sync with prev. stats` |
 | Navigation | `Shortcuts`, `Location Home and Apps`, `Visibility Home and Apps`, `Order Home shortcuts`, `Order Apps shortcuts` |
+
+`Text Darkness` is adapted from the [`crosspet`](https://github.com/trilwu/crosspet) fork. It only affects anti-aliased reader text and gives you `Normal`, `Dark` and `Extra Dark` rendering options.
+
+`Lexend` is also adapted from the [`crosspet`](https://github.com/trilwu/crosspet) fork as an extra reader font family. In this fork it bundles the regular face across the available sizes and uses it as the fallback for bold and italic variants to keep flash usage under control.
 
 ## What requires Sync Day
 
@@ -440,8 +447,8 @@ Important files include:
 Each firmware build now keeps the base project version and the fork release separate:
 
 - `crosspoint.version`: the upstream base release, currently `1.2.0`
-- `vcodex.version`: the fork release shown to the user, currently `1.2.0.1`
-- `vcodex.version_code`: the exact build identifier, currently `2026040401`
+- `vcodex.version`: the fork release shown to the user, currently `1.2.0.3`
+- `vcodex.version_code`: the exact build identifier, currently `2026040501`
 
 The firmware UI keeps showing the fork version to avoid confusion, while the base version remains available as metadata for tracking upstream sync.
 For a brief release history, see [CHANGELOG.md](./CHANGELOG.md).

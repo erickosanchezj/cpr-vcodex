@@ -59,6 +59,7 @@ void TxtReaderActivity::onEnter() {
   }
 
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  renderer.setTextDarkness(SETTINGS.textDarkness);
 
   txt->setupCacheDir();
 
@@ -80,6 +81,7 @@ void TxtReaderActivity::onExit() {
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setTextDarkness(0);
 
   pageOffsets.clear();
   currentPageLines.clear();

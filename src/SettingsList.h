@@ -82,9 +82,9 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         {StrId::STR_HOME_LOCATION, StrId::STR_APPS}, "sleepShortcut", StrId::STR_APPS),
 
       // --- Reader ---
-      SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                        {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC}, "fontFamily",
-                        StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
+                        {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC, StrId::STR_LEXEND}, "fontFamily",
+                          StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
                         {StrId::STR_X_SMALL, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
                          StrId::STR_X_LARGE},
@@ -108,6 +108,9 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CAT_READER),
       SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                           StrId::STR_CAT_READER),
+      SettingInfo::Enum(StrId::STR_TEXT_DARKNESS, &CrossPointSettings::textDarkness,
+                        {StrId::STR_NORMAL, StrId::STR_DARK, StrId::STR_EXTRA_DARK}, "textDarkness",
+                        StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                         {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
                         "imageRendering", StrId::STR_CAT_READER),

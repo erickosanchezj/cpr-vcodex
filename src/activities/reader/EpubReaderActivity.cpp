@@ -141,6 +141,7 @@ void EpubReaderActivity::onEnter() {
   // Configure screen orientation based on settings
   // NOTE: This affects layout math and must be applied before any render calls.
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  renderer.setTextDarkness(SETTINGS.textDarkness);
 
   epub->setupCacheDir();
   stableBookId = BookIdentity::resolveStableBookId(epub->getPath());
@@ -210,6 +211,7 @@ void EpubReaderActivity::onExit() {
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  renderer.setTextDarkness(0);
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
@@ -292,13 +294,20 @@ void EpubReaderActivity::loop() {
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty(), !bookmarkStore.isEmpty()),
+                               SETTINGS.orientation, SETTINGS.textDarkness, !currentPageFootnotes.empty(),
+                               !bookmarkStore.isEmpty()),
                            [this](const ActivityResult& result) {
                              READING_STATS.resumeSession();
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
                              applyOrientation(menu.orientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
+                             if (SETTINGS.textDarkness != menu.textDarkness) {
+                               SETTINGS.textDarkness = menu.textDarkness;
+                               SETTINGS.saveToFile();
+                               renderer.setTextDarkness(SETTINGS.textDarkness);
+                               requestUpdate();
+                             }
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
                              }
@@ -914,9 +923,23 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderStatusBar();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      // AA pages should avoid HALF_REFRESH before the grayscale LUT pass.
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     }
     // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
+  } else if (SETTINGS.textAntiAliasing) {
+    // Match the AA refresh behavior used in crosspet: the grayscale pass works
+    // better when the BW pass is shown with FAST_REFRESH instead of HALF_REFRESH.
+    pagesUntilFullRefresh--;
+    if (pagesUntilFullRefresh <= 0) {
+      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+      renderer.clearScreen();
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      renderer.clearScreen();
+      page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      renderStatusBar();
+    }
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }

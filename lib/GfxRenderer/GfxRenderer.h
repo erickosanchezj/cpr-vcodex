@@ -38,6 +38,7 @@ class GfxRenderer {
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
+  uint8_t textDarkness = 0;  // 0=normal, 1=dark, 2=extra dark
   uint8_t* frameBuffer = nullptr;
   uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
   std::map<int, EpdFontFamily> fontMap;
@@ -78,6 +79,10 @@ class GfxRenderer {
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+
+  // Text darkness control for anti-aliased reader text.
+  void setTextDarkness(const uint8_t d) { textDarkness = d; }
+  uint8_t getTextDarkness() const { return textDarkness; }
 
   // Screen ops
   int getScreenWidth() const;
