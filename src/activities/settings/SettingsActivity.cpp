@@ -35,6 +35,8 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DIS
                                                               StrId::STR_APPS};
 
 namespace {
+constexpr char kUpdateCprVcodexLabel[] = "Update cpr-vCodex";
+
 std::string getReadingStatsExportPath() {
   constexpr char defaultPath[] = "/exports/reading_stats_export.json";
 
@@ -119,6 +121,13 @@ std::string getSettingValueText(const SettingInfo& setting) {
     return TimeUtils::getCurrentTimeZoneLabel();
   }
   return "";
+}
+
+const char* getSettingNameText(const SettingInfo& setting) {
+  if (setting.type == SettingType::ACTION && setting.action == SettingAction::CheckForUpdates) {
+    return kUpdateCprVcodexLabel;
+  }
+  return I18N.get(setting.nameId);
 }
 }  // namespace
 
@@ -568,14 +577,14 @@ void SettingsActivity::renderAppSettingsList(const Rect& rect) const {
       renderer.drawRect(rowRect.x, rowRect.y, rowRect.width, rowRect.height);
     }
 
-    const std::string valueText = getSettingValueText(setting);
+      const std::string valueText = getSettingValueText(setting);
     const int valueWidth =
         valueText.empty() ? 0 : renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str(), EpdFontFamily::REGULAR);
     const int leftPadding = 12;
     const int rightPadding = 12;
     const int labelWidth = rowRect.width - leftPadding - rightPadding - (valueWidth > 0 ? valueWidth + 12 : 0);
     const std::string titleText =
-        renderer.truncatedText(UI_10_FONT_ID, I18N.get(setting.nameId), labelWidth, EpdFontFamily::REGULAR);
+        renderer.truncatedText(UI_10_FONT_ID, getSettingNameText(setting), labelWidth, EpdFontFamily::REGULAR);
     renderer.drawText(UI_10_FONT_ID, rowRect.x + leftPadding, rowRect.y + 9, titleText.c_str(), true,
                       EpdFontFamily::REGULAR);
 
@@ -631,7 +640,7 @@ void SettingsActivity::render(RenderLock&&) {
   } else {
     const auto& settings = *currentSettings;
     GUI.drawList(renderer, listRect, settingsCount, selectedSettingIndex - 1,
-                 [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
+                 [&settings](int index) { return std::string(getSettingNameText(settings[index])); }, nullptr, nullptr,
                  [&settings](int i) { return getSettingValueText(settings[i]); }, true);
   }
 

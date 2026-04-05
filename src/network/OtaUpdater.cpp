@@ -3,16 +3,80 @@
 #include <ArduinoJson.h>
 #include <Logging.h>
 
+#include <algorithm>
+#include <array>
+#include <cctype>
+
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_wifi.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+#ifndef OTA_RELEASE_REPO
+#define OTA_RELEASE_REPO "franssjz/cpr-vcodex"
+#endif
+
+#ifndef OTA_FIRMWARE_ASSET_NAME
+#define OTA_FIRMWARE_ASSET_NAME "firmware.bin"
+#endif
+
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/" OTA_RELEASE_REPO "/releases/latest";
+constexpr char otaFirmwareAssetName[] = OTA_FIRMWARE_ASSET_NAME;
 
 /* This is buffer and size holder to keep upcoming data from latestReleaseUrl */
 char* local_buf;
 int output_len;
+
+struct ParsedVersion {
+  std::array<int, 4> segments = {0, 0, 0, 0};
+  size_t count = 0;
+  bool valid = false;
+  bool isRc = false;
+};
+
+ParsedVersion parseVersion(const std::string& version) {
+  ParsedVersion parsed;
+  parsed.isRc = version.find("-rc") != std::string::npos;
+
+  int currentValue = -1;
+  for (const char ch : version) {
+    if (std::isdigit(static_cast<unsigned char>(ch))) {
+      currentValue = (currentValue < 0) ? (ch - '0') : (currentValue * 10 + (ch - '0'));
+      continue;
+    }
+
+    if (currentValue >= 0) {
+      if (parsed.count < parsed.segments.size()) {
+        parsed.segments[parsed.count++] = currentValue;
+      }
+      currentValue = -1;
+    }
+  }
+
+  if (currentValue >= 0 && parsed.count < parsed.segments.size()) {
+    parsed.segments[parsed.count++] = currentValue;
+  }
+
+  parsed.valid = parsed.count > 0;
+  return parsed;
+}
+
+int compareVersions(const ParsedVersion& left, const ParsedVersion& right) {
+  const size_t segmentCount = std::max(left.count, right.count);
+  for (size_t index = 0; index < segmentCount; ++index) {
+    const int leftSegment = (index < left.count) ? left.segments[index] : 0;
+    const int rightSegment = (index < right.count) ? right.segments[index] : 0;
+    if (leftSegment != rightSegment) {
+      return (leftSegment > rightSegment) ? 1 : -1;
+    }
+  }
+
+  if (left.isRc != right.isRc) {
+    return left.isRc ? -1 : 1;
+  }
+
+  return 0;
+}
 
 /*
  * When esp_crt_bundle.h included, it is pointing wrong header file
@@ -137,7 +201,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   latestVersion = doc["tag_name"].as<std::string>();
 
   for (int i = 0; i < doc["assets"].size(); i++) {
-    if (doc["assets"][i]["name"] == "firmware.bin") {
+    if (doc["assets"][i]["name"] == otaFirmwareAssetName) {
       otaUrl = doc["assets"][i]["browser_download_url"].as<std::string>();
       otaSize = doc["assets"][i]["size"].as<size_t>();
       totalSize = otaSize;
@@ -147,7 +211,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!updateAvailable) {
-    LOG_ERR("OTA", "No firmware.bin asset found");
+    LOG_ERR("OTA", "No %s asset found", otaFirmwareAssetName);
     return NO_UPDATE;
   }
 
@@ -160,42 +224,12 @@ bool OtaUpdater::isUpdateNewer() const {
     return false;
   }
 
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
-
-  const auto currentVersion = CROSSPOINT_VERSION;
-
-  // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
-  sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
-
-  /*
-   * Compare major versions.
-   * If they differ, return true if latest major version greater than current major version
-   * otherwise return false.
-   */
-  if (latestMajor != currentMajor) return latestMajor > currentMajor;
-
-  /*
-   * Compare minor versions.
-   * If they differ, return true if latest minor version greater than current minor version
-   * otherwise return false.
-   */
-  if (latestMinor != currentMinor) return latestMinor > currentMinor;
-
-  /*
-   * Check patch versions.
-   */
-  if (latestPatch != currentPatch) return latestPatch > currentPatch;
-
-  // If we reach here, it means all segments are equal.
-  // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
-  // the segments are equal, since RC builds are pre-release versions.
-  if (strstr(currentVersion, "-rc") != nullptr) {
-    return true;
+  const ParsedVersion latest = parseVersion(latestVersion);
+  const ParsedVersion current = parseVersion(CROSSPOINT_VERSION);
+  if (!latest.valid || !current.valid) {
+    return latestVersion != CROSSPOINT_VERSION;
   }
-
-  return false;
+  return compareVersions(latest, current) > 0;
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
