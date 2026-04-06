@@ -5,6 +5,8 @@ Brief firmware history for `cpr-vcodex`.
 ## 1.2.0.5
 
 - rebuilt the current firmware line as `1.2.0.5`
+- restored `Lexend` as a reader font family after the later font-pruning pass removed it
+- restored the translation files to a clean pre-corruption state after the mojibake regression introduced during the OTA/font refactor work
 
 Version code: `2026040605`
 

@@ -72,6 +72,21 @@ EpdFont bookerly18BoldItalicFont(&bookerly_18_bolditalic);
 EpdFontFamily bookerly18FontFamily(&bookerly18RegularFont, &bookerly18BoldFont, &bookerly18ItalicFont,
                                    &bookerly18BoldItalicFont);
 
+// Lexend adapted from crosspet. To keep flash usage under control in this fork,
+// the bundled Lexend family uses the regular face for bold/italic fallbacks.
+EpdFont lexend12RegularFont(&lexend_12_regular);
+EpdFontFamily lexend12FontFamily(&lexend12RegularFont, &lexend12RegularFont, &lexend12RegularFont,
+                                 &lexend12RegularFont);
+EpdFont lexend14RegularFont(&lexend_14_regular);
+EpdFontFamily lexend14FontFamily(&lexend14RegularFont, &lexend14RegularFont, &lexend14RegularFont,
+                                 &lexend14RegularFont);
+EpdFont lexend16RegularFont(&lexend_16_regular);
+EpdFontFamily lexend16FontFamily(&lexend16RegularFont, &lexend16RegularFont, &lexend16RegularFont,
+                                 &lexend16RegularFont);
+EpdFont lexend18RegularFont(&lexend_18_regular);
+EpdFontFamily lexend18FontFamily(&lexend18RegularFont, &lexend18RegularFont, &lexend18RegularFont,
+                                 &lexend18RegularFont);
+
 EpdFont notosans10RegularFont(&notosans_10_regular);
 EpdFontFamily notosans10FontFamily(&notosans10RegularFont, &notosans10RegularFont, &notosans10RegularFont,
                                    &notosans10RegularFont);
@@ -203,6 +218,11 @@ void setupDisplayAndFonts() {
   renderer.insertFont(BOOKERLY_12_FONT_ID, bookerly12FontFamily);
   renderer.insertFont(BOOKERLY_16_FONT_ID, bookerly16FontFamily);
   renderer.insertFont(BOOKERLY_18_FONT_ID, bookerly18FontFamily);
+
+  renderer.insertFont(LEXEND_12_FONT_ID, lexend12FontFamily);
+  renderer.insertFont(LEXEND_14_FONT_ID, lexend14FontFamily);
+  renderer.insertFont(LEXEND_16_FONT_ID, lexend16FontFamily);
+  renderer.insertFont(LEXEND_18_FONT_ID, lexend18FontFamily);
 
   renderer.insertFont(NOTOSANS_10_FONT_ID, notosans10FontFamily);
   renderer.insertFont(NOTOSANS_12_FONT_ID, notosans12FontFamily);

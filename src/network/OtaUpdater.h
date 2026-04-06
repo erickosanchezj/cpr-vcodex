@@ -1,12 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 class OtaUpdater {
   bool updateAvailable = false;
   std::string latestVersion;
   std::string otaUrl;
-  std::string lastErrorMessage;
   size_t otaSize = 0;
   size_t processedSize = 0;
   size_t totalSize = 0;
@@ -19,7 +19,6 @@ class OtaUpdater {
     HTTP_ERROR,
     JSON_PARSE_ERROR,
     UPDATE_OLDER_ERROR,
-    ASSET_NOT_FOUND_ERROR,
     INTERNAL_UPDATE_ERROR,
     OOM_ERROR,
   };
@@ -31,7 +30,6 @@ class OtaUpdater {
   size_t getTotalSize() const { return totalSize; }
 
   bool getRender() const { return render; }
-  const std::string& getLastErrorMessage() const { return lastErrorMessage; }
 
   OtaUpdater() = default;
   bool isUpdateNewer() const;

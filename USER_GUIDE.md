@@ -159,6 +159,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Reader Font Family**: Choose the font used for reading:
   - "Bookerly" (default) - Amazon's reading font
   - "Noto Sans" - Google's sans-serif font
+  - "Lexend" - Reader-friendly sans font adapted from crosspet
 - **Reader Font Size**: Adjust the text size for reading; options are "Small", "Medium" (default), "Large", or "X Large".
 
 - **Reader Line Spacing**: Adjust the spacing between lines; options are "Tight", "Normal" (default), or "Wide".

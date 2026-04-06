@@ -4,7 +4,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
-#include <esp_sntp.h>
 
 #include <algorithm>
 #include <map>
@@ -252,13 +251,6 @@ void WifiSelectionActivity::checkConnectionStatus() {
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
     connectedIP = ipStr;
     autoConnecting = false;
-
-    // Match crosspet behavior: bootstrap SNTP on Wi-Fi connection so HTTPS
-    // flows such as OTA have a valid clock even when Auto Sync Day is off.
-    if (!esp_sntp_enabled()) {
-      const char* tz = getenv("TZ");
-      configTzTime(tz ? tz : "UTC0", "pool.ntp.org", "time.google.com");
-    }
 
     // Save this as the last connected network - SD card operations need lock as
     // we use SPI for both

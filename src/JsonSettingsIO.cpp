@@ -298,7 +298,13 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     }
   }
   const uint8_t rawFontFamily = doc["fontFamily"] | s.fontFamily;
-  if (rawFontFamily >= static_cast<uint8_t>(CrossPointSettings::FONT_FAMILY_COUNT)) {
+  if (rawFontFamily == 3) {
+    s.fontFamily = CrossPointSettings::LEXEND;
+    if (needsResave) *needsResave = true;
+  } else if (rawFontFamily == 2) {
+    s.fontFamily = CrossPointSettings::BOOKERLY;
+    if (needsResave) *needsResave = true;
+  } else if (rawFontFamily >= static_cast<uint8_t>(CrossPointSettings::FONT_FAMILY_COUNT)) {
     s.fontFamily = CrossPointSettings::BOOKERLY;
     if (needsResave) *needsResave = true;
   }

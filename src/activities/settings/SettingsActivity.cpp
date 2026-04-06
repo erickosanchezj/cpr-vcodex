@@ -35,8 +35,6 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DIS
                                                               StrId::STR_APPS};
 
 namespace {
-constexpr char kUpdateCprVcodexLabel[] = "Update cpr-vCodex";
-
 std::string getReadingStatsExportPath() {
   constexpr char defaultPath[] = "/exports/reading_stats_export.json";
 
@@ -124,9 +122,6 @@ std::string getSettingValueText(const SettingInfo& setting) {
 }
 
 const char* getSettingNameText(const SettingInfo& setting) {
-  if (setting.type == SettingType::ACTION && setting.action == SettingAction::CheckForUpdates) {
-    return kUpdateCprVcodexLabel;
-  }
   return I18N.get(setting.nameId);
 }
 }  // namespace
@@ -189,7 +184,6 @@ void SettingsActivity::buildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_BROWSER, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
   appSettings.push_back(SettingInfo::Section(StrId::STR_DAY_SYNC_SECTION));

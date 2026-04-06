@@ -9,11 +9,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
-#include "util/TimeUtils.h"
-
-namespace {
-constexpr char kUpdateCprVcodexLabel[] = "Update cpr-vCodex";
-}
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -24,11 +19,6 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 
   LOG_DBG("OTA", "WiFi connected, checking for update");
 
-  if (!TimeUtils::isClockValid()) {
-    LOG_DBG("OTA", "Clock invalid, syncing time before HTTPS OTA");
-    TimeUtils::syncTimeWithNtp(5000);
-  }
-
   {
     RenderLock lock(*this);
     state = CHECKING_FOR_UPDATE;
@@ -38,7 +28,6 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   const auto res = updater.checkForUpdate();
   if (res != OtaUpdater::OK) {
     LOG_DBG("OTA", "Update check failed: %d", res);
-    errorMessage = updater.getLastErrorMessage();
     {
       RenderLock lock(*this);
       state = FAILED;
@@ -91,7 +80,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, kUpdateCprVcodexLabel);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_UPDATE));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 
@@ -139,16 +128,6 @@ void OtaUpdateActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
-    const char* detailText = !errorMessage.empty() ? errorMessage.c_str() : updater.getLastErrorMessage().c_str();
-    if (detailText[0] != '\0') {
-      const auto lines = renderer.wrappedText(UI_10_FONT_ID, detailText, pageWidth - metrics.contentSidePadding * 2, 2,
-                                              EpdFontFamily::REGULAR);
-      int detailY = top + height + metrics.verticalSpacing;
-      for (const auto& line : lines) {
-        renderer.drawCenteredText(UI_10_FONT_ID, detailY, line.c_str());
-        detailY += height + 2;
-      }
-    }
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
