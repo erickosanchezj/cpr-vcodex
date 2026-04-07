@@ -25,7 +25,6 @@ bool canUseSleepCache(const Bitmap& bitmap) {
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
-  GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   const bool restoreDarkMode = renderer.isDarkMode();
   if (restoreDarkMode) {
     renderer.setDarkMode(false);
@@ -163,7 +162,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::string& sourcePath) const {
@@ -329,5 +328,5 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

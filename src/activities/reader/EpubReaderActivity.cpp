@@ -142,6 +142,7 @@ void EpubReaderActivity::onEnter() {
   // NOTE: This affects layout math and must be applied before any render calls.
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   renderer.setTextDarkness(SETTINGS.textDarkness);
+  pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
 
   epub->setupCacheDir();
   stableBookId = BookIdentity::resolveStableBookId(epub->getPath());
@@ -931,18 +932,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     }
     // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
   } else if (enableTextAA) {
-    // Match the AA refresh behavior used in crosspet: the grayscale pass works
-    // better when the BW pass is shown with FAST_REFRESH instead of HALF_REFRESH.
-    pagesUntilFullRefresh--;
-    if (pagesUntilFullRefresh <= 0) {
-      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-      renderer.clearScreen();
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-      renderer.clearScreen();
-      page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
-      renderStatusBar();
-    }
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    // Smooth text-only pages the same way as upstream: render the final page
+    // directly, and let the configured cadence decide when a half refresh is needed.
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }

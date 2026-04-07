@@ -60,6 +60,7 @@ void TxtReaderActivity::onEnter() {
 
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   renderer.setTextDarkness(SETTINGS.textDarkness);
+  pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
 
   txt->setupCacheDir();
 

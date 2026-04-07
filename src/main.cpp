@@ -14,6 +14,7 @@
 #include <builtinFonts/all.h>
 
 #include <cstring>
+#include <esp_sleep.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -272,7 +273,10 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   TimeUtils::configureTimezone();
 
-  switch (gpio.getWakeupReason()) {
+  const auto wakeupReason = gpio.getWakeupReason();
+  const bool wokeFromDeepSleep = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+
+  switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       // For normal wakeups, verify power button press duration
       LOG_DBG("MAIN", "Verifying power button press duration");
@@ -295,7 +299,9 @@ void setup() {
 
   setupDisplayAndFonts();
 
-  activityManager.goToBoot();
+  if (!wokeFromDeepSleep) {
+    activityManager.goToBoot();
+  }
 
   APP_STATE.loadFromFile();
   READING_STATS.loadFromFile();

@@ -9,6 +9,10 @@
 
 void BootActivity::onEnter() {
   Activity::onEnter();
+  const bool restoreDarkMode = renderer.isDarkMode();
+  if (restoreDarkMode) {
+    renderer.setDarkMode(false);
+  }
 
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -19,4 +23,8 @@ void BootActivity::onEnter() {
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_BOOTING));
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, CROSSPOINT_VERSION);
   renderer.displayBuffer();
+
+  if (restoreDarkMode) {
+    renderer.setDarkMode(true);
+  }
 }

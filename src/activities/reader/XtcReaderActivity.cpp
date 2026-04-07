@@ -98,6 +98,7 @@ void XtcReaderActivity::onEnter() {
     return;
   }
 
+  pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   xtc->setupCacheDir();
   stableBookId = BookIdentity::resolveStableBookId(xtc->getPath());
 
