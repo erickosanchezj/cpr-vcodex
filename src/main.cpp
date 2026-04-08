@@ -148,6 +148,14 @@ void waitForPowerRelease() {
   }
 }
 
+void verifyUsbPowerWakeup() {
+  // USB power must never resume the device by itself.
+  // Require an actual power-button press, but keep the short-press path fast.
+  const uint16_t requiredDuration =
+      (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 1 : SETTINGS.getPowerButtonDuration();
+  gpio.verifyPowerButtonWakeup(requiredDuration, false);
+}
+
 // Enter deep sleep mode
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -254,9 +262,8 @@ void setup() {
                                    SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
-      LOG_DBG("MAIN", "Wakeup reason: After USB Power, verifying power button");
-      gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
-                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+      LOG_DBG("MAIN", "Wakeup reason: After USB Power, verifying explicit power button press");
+      verifyUsbPowerWakeup();
       break;
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
