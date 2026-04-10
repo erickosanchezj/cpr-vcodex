@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
 BOOKERLY_FONT_SIZES=(10 12 14 16 18)
 NOTOSANS_FONT_SIZES=(10 12 14 16 18)
-LEXEND_FONT_SIZES=(12 14 16 18)
+LEXEND_FONT_SIZES=(10 12 14 16 18)
 LEXEND_FONT_STYLES=("Regular" "Bold")
 
 for size in ${BOOKERLY_FONT_SIZES[@]}; do

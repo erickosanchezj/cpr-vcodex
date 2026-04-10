@@ -1,24 +1,14 @@
 """
 PlatformIO post-build helper:
 - prints the final firmware.bin size against the OTA app partition limit
-- creates a versioned copy for vCodex release builds
+- keeps the build output limited to firmware.bin
 """
 
 from __future__ import annotations
 
-import configparser
 import csv
+import glob
 import os
-import shutil
-
-
-def load_versions(project_dir: str) -> tuple[str | None, str | None]:
-    ini_path = os.path.join(project_dir, "platformio.ini")
-    config = configparser.ConfigParser()
-    config.read(ini_path, encoding="utf-8")
-    vcodex_version = config.get("vcodex", "version", fallback=None)
-    crosspoint_version = config.get("crosspoint", "version", fallback=None)
-    return vcodex_version, crosspoint_version
 
 
 def load_app_partition_size(project_dir: str) -> int | None:
@@ -57,19 +47,18 @@ def after_build(target, source, env):
             f"usage = {usage:.1f}% | margin = {margin} bytes"
         )
 
+    output_dir = os.path.dirname(bin_path)
     if pio_env != "vcodex_release":
         return
 
-    vcodex_version, _ = load_versions(project_dir)
-    if not vcodex_version:
-        print("Post-build: vCodex version not found, skipping versioned copy")
-        return
-
-    output_dir = os.path.dirname(bin_path)
-    versioned_name = f"firmware.{vcodex_version}-vcodex.bin"
-    versioned_path = os.path.join(output_dir, versioned_name)
-    shutil.copy2(bin_path, versioned_path)
-    print(f"Post-build: created {versioned_name}")
+    stale_pattern = os.path.join(output_dir, "firmware.*-vcodex.bin")
+    stale_bins = glob.glob(stale_pattern)
+    for stale_bin in stale_bins:
+        try:
+            os.remove(stale_bin)
+            print(f"Post-build: removed stale {os.path.basename(stale_bin)}")
+        except OSError as exc:
+            print(f"Post-build: failed to remove stale {os.path.basename(stale_bin)}: {exc}")
 
 
 Import("env")

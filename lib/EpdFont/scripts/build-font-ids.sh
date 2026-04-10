@@ -53,6 +53,41 @@ ruby -rdigest -e 'puts [
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
+echo "#define LEXEND_10_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./lexend_10_regular.h",
+  "./lexend_10_bold.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define LEXEND_12_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./lexend_12_regular.h",
+  "./lexend_12_bold.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define LEXEND_14_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./lexend_14_regular.h",
+  "./lexend_14_bold.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define LEXEND_16_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./lexend_16_regular.h",
+  "./lexend_16_bold.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define LEXEND_18_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./lexend_18_regular.h",
+  "./lexend_18_bold.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
 echo "#define NOTOSANS_10_FONT_ID ($(
 ruby -rdigest -e 'puts [
   "./notosans_10_regular.h",

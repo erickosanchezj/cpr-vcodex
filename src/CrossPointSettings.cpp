@@ -369,6 +369,7 @@ int CrossPointSettings::getReaderFontId() const {
     case LEXEND:
       switch (fontSize) {
         case X_SMALL:
+          return LEXEND_10_FONT_ID;
         case SMALL:
           return LEXEND_12_FONT_ID;
         case MEDIUM:
