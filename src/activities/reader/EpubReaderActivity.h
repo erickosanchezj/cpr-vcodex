@@ -32,6 +32,9 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  bool pendingForceFullRefresh = false;
+  bool waitingForConfirmSecondClick = false;
+  unsigned long firstConfirmClickMs = 0UL;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -54,6 +57,7 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
+  void requestCurrentPageFullRefresh();
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);

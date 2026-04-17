@@ -17,10 +17,14 @@ class XtcReaderActivity final : public Activity {
 
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;
+  bool pendingForceFullRefresh = false;
+  bool waitingForConfirmSecondClick = false;
+  unsigned long firstConfirmClickMs = 0UL;
 
   void renderPage();
   void saveProgress() const;
   void loadProgress();
+  void requestCurrentPageFullRefresh();
 
  public:
   explicit XtcReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Xtc> xtc)

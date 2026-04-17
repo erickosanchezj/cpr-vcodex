@@ -9,6 +9,7 @@
 namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
+constexpr unsigned long CONFIRM_DOUBLE_CLICK_MS = 300;
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {
@@ -47,6 +48,36 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
                              : (input.wasReleased(MappedInputManager::Button::PageForward) || powerTurn ||
                                 input.wasReleased(MappedInputManager::Button::Right));
   return {prev, next};
+}
+
+inline bool hasNonConfirmNavigationInput(const MappedInputManager& input) {
+  return input.wasPressed(MappedInputManager::Button::Back) || input.wasReleased(MappedInputManager::Button::Back) ||
+         input.wasPressed(MappedInputManager::Button::PageBack) ||
+         input.wasReleased(MappedInputManager::Button::PageBack) ||
+         input.wasPressed(MappedInputManager::Button::PageForward) ||
+         input.wasReleased(MappedInputManager::Button::PageForward) ||
+         input.wasPressed(MappedInputManager::Button::Left) || input.wasReleased(MappedInputManager::Button::Left) ||
+         input.wasPressed(MappedInputManager::Button::Right) || input.wasReleased(MappedInputManager::Button::Right) ||
+         input.wasPressed(MappedInputManager::Button::Up) || input.wasReleased(MappedInputManager::Button::Up) ||
+         input.wasPressed(MappedInputManager::Button::Down) || input.wasReleased(MappedInputManager::Button::Down) ||
+         input.wasPressed(MappedInputManager::Button::Power) || input.wasReleased(MappedInputManager::Button::Power);
+}
+
+inline bool registerConfirmDoubleClick(bool& waitingForSecondClick, unsigned long& firstClickMs, const unsigned long nowMs) {
+  if (waitingForSecondClick && nowMs - firstClickMs <= CONFIRM_DOUBLE_CLICK_MS) {
+    waitingForSecondClick = false;
+    firstClickMs = 0UL;
+    return true;
+  }
+
+  waitingForSecondClick = true;
+  firstClickMs = nowMs;
+  return false;
+}
+
+inline bool hasPendingConfirmSingleClickExpired(const bool waitingForSecondClick, const unsigned long firstClickMs,
+                                                const unsigned long nowMs) {
+  return waitingForSecondClick && nowMs - firstClickMs > CONFIRM_DOUBLE_CLICK_MS;
 }
 
 inline bool getConfiguredReaderRefreshMode(HalDisplay::RefreshMode& mode) {

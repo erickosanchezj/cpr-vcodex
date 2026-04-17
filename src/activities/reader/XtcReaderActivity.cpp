@@ -127,9 +127,24 @@ void XtcReaderActivity::onExit() {
 
 void XtcReaderActivity::loop() {
   READING_STATS.tickActiveSession();
+  const unsigned long nowMs = millis();
+
+  if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
+  }
 
   // Enter chapter selection activity
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (ReaderUtils::registerConfirmDoubleClick(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+      requestCurrentPageFullRefresh();
+      return;
+    }
+  }
+
+  if (ReaderUtils::hasPendingConfirmSingleClickExpired(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
     if (xtc && xtc->hasChapters() && !xtc->getChapters().empty()) {
       READING_STATS.noteActivity();
       startActivityForResult(
@@ -208,6 +223,12 @@ void XtcReaderActivity::loop() {
   }
 }
 
+void XtcReaderActivity::requestCurrentPageFullRefresh() {
+  READING_STATS.noteActivity();
+  pendingForceFullRefresh = true;
+  requestUpdate();
+}
+
 void XtcReaderActivity::render(RenderLock&&) {
   if (!xtc) {
     return;
@@ -242,6 +263,8 @@ void XtcReaderActivity::renderPage() {
     renderer.setDarkMode(false);
   }
   DarkModeScope darkModeScope{renderer, restoreDarkMode};
+  const bool forceFullRefresh = pendingForceFullRefresh;
+  pendingForceFullRefresh = false;
 
   const uint16_t pageWidth = xtc->getPageWidth();
   const uint16_t pageHeight = xtc->getPageHeight();
@@ -332,7 +355,7 @@ void XtcReaderActivity::renderPage() {
     }
 
     // Display BW with the configured reader refresh policy
-    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, forceFullRefresh);
 
     // Pass 2: LSB buffer - mark DARK gray only (XTH value 1)
     // In LUT: 0 bit = apply gray effect, 1 bit = untouched
@@ -405,7 +428,7 @@ void XtcReaderActivity::renderPage() {
   // XTC pages already have status bar pre-rendered, no need to add our own
 
   // Display with the configured reader refresh policy
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, forceFullRefresh);
 
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
 }

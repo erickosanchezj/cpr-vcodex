@@ -21,6 +21,9 @@ class TxtReaderActivity final : public Activity {
   int viewportWidth = 0;
   bool initialized = false;
   std::string stableBookId;
+  bool pendingForceFullRefresh = false;
+  bool waitingForConfirmSecondClick = false;
+  unsigned long firstConfirmClickMs = 0UL;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int cachedFontId = 0;
@@ -41,6 +44,7 @@ class TxtReaderActivity final : public Activity {
   void savePageIndexCache() const;
   void saveProgress() const;
   void loadProgress();
+  void requestCurrentPageFullRefresh();
 
  public:
   explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt)

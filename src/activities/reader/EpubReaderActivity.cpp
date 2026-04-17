@@ -230,6 +230,12 @@ void EpubReaderActivity::loop() {
   }
 
   READING_STATS.tickActiveSession();
+  const unsigned long nowMs = millis();
+
+  if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
+  }
 
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
@@ -259,6 +265,8 @@ void EpubReaderActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= bookmarkToggleMs) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
     if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
       READING_STATS.noteActivity();
       const uint16_t spineIndex = static_cast<uint16_t>(currentSpineIndex);
@@ -281,8 +289,17 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  // Enter reader menu activity.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (ReaderUtils::registerConfirmDoubleClick(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+      requestCurrentPageFullRefresh();
+      return;
+    }
+  }
+
+  // Enter reader menu activity.
+  if (ReaderUtils::hasPendingConfirmSingleClickExpired(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
     READING_STATS.noteActivity();
     const int currentPage = section ? section->currentPage + 1 : 0;
     const int totalPages = section ? section->pageCount : 0;
@@ -376,6 +393,12 @@ void EpubReaderActivity::loop() {
   } else {
     pageTurn(true);
   }
+}
+
+void EpubReaderActivity::requestCurrentPageFullRefresh() {
+  READING_STATS.noteActivity();
+  pendingForceFullRefresh = true;
+  requestUpdate();
 }
 
 // Translate an absolute percent into a spine index plus a normalized position
@@ -932,6 +955,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   const bool enableTextAA = SETTINGS.textAntiAliasing && !renderer.isDarkMode();
   const bool enableImageGrayscaleOnly = renderer.isDarkMode() && page->hasImages();
+  const bool forceFullRefresh = pendingForceFullRefresh;
+  pendingForceFullRefresh = false;
   // Force special handling for pages with images when anti-aliasing is on
   bool imagePageWithAA = page->hasImages() && enableTextAA;
   HalDisplay::RefreshMode configuredRefreshMode = HalDisplay::FAST_REFRESH;
@@ -942,7 +967,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
 
-  if (hasConfiguredRefreshMode) {
+  if (forceFullRefresh) {
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, true);
+  } else if (hasConfiguredRefreshMode) {
     renderer.displayBuffer(configuredRefreshMode);
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else if (imagePageWithAA) {

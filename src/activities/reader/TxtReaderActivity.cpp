@@ -90,6 +90,18 @@ void TxtReaderActivity::onExit() {
 
 void TxtReaderActivity::loop() {
   READING_STATS.tickActiveSession();
+  const unsigned long nowMs = millis();
+
+  if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) &&
+      ReaderUtils::registerConfirmDoubleClick(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+    requestCurrentPageFullRefresh();
+    return;
+  }
 
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
@@ -125,6 +137,12 @@ void TxtReaderActivity::loop() {
       exitReaderToHomeOrStats(renderer, mappedInput, txt ? txt->getPath() : "");
     }
   }
+}
+
+void TxtReaderActivity::requestCurrentPageFullRefresh() {
+  READING_STATS.noteActivity();
+  pendingForceFullRefresh = true;
+  requestUpdate();
 }
 
 void TxtReaderActivity::initializeReader() {
@@ -417,7 +435,9 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  const bool forceFullRefresh = pendingForceFullRefresh;
+  pendingForceFullRefresh = false;
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, forceFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
