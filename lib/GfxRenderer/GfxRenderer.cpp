@@ -154,18 +154,33 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           const uint8_t darkness = renderer.getTextDarkness();
 
           if (renderMode == GfxRenderer::BW) {
-            // Normal: black only. Dark: black + dark gray. Extra dark: all non-white.
-            if (bmpVal < (1 + darkness)) {
+            // Fill any non-white source pixel in BW for all modes.
+            // This removes the overly thin "black only" look without adding render cost.
+            if (bmpVal < 3) {
               renderer.drawPixel(screenX, screenY, pixelState);
             }
           } else {
-            // Shift gray AA pixels darker while preserving edge smoothing.
-            if (darkness > 0 && bmpVal > 0 && bmpVal < 3) {
-              bmpVal = (bmpVal > darkness) ? static_cast<uint8_t>(bmpVal - darkness) : static_cast<uint8_t>(1);
+            bool hitMsb = false;
+            bool hitLsb = false;
+
+            switch (darkness) {
+              case 0:  // Normal: stronger baseline, close to the old "Dark"
+                hitMsb = (bmpVal == 1 || bmpVal == 2);
+                hitLsb = (bmpVal == 1);
+                break;
+              case 1:  // Dark: darken both AA buckets further
+                hitMsb = (bmpVal == 1 || bmpVal == 2);
+                hitLsb = (bmpVal == 1 || bmpVal == 2);
+                break;
+              default:  // Extra Dark: keep the strongest AA mapping
+                hitMsb = (bmpVal == 1 || bmpVal == 2);
+                hitLsb = (bmpVal == 1 || bmpVal == 2);
+                break;
             }
-            if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
+
+            if (renderMode == GfxRenderer::GRAYSCALE_MSB && hitMsb) {
               renderer.drawPixel(screenX, screenY, false);
-            } else if (renderMode == GfxRenderer::GRAYSCALE_LSB && bmpVal == 1) {
+            } else if (renderMode == GfxRenderer::GRAYSCALE_LSB && hitLsb) {
               renderer.drawPixel(screenX, screenY, false);
             }
           }
