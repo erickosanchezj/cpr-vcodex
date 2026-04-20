@@ -5,15 +5,22 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <PNGdec.h>
 #include <Txt.h>
 #include <Xtc.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "images/Logo120.h"
+#include "images/Logo.h"
 #include "util/SleepImageUtils.h"
+#include "util/PngSleepRenderer.h"
 #include "util/SleepScreenCache.h"
 
 namespace {
@@ -21,7 +28,12 @@ bool canUseSleepCache(const Bitmap& bitmap) {
   return !(bitmap.hasGreyscale() &&
            SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
 }
+
+bool usesCustomSleepImages() {
+  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
+         (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM && !APP_STATE.lastSleepFromReader);
 }
+}  // namespace
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
@@ -30,17 +42,31 @@ void SleepActivity::onEnter() {
     renderer.setDarkMode(false);
   }
 
+  if (APP_STATE.lastSleepFromReader) {
+    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    if (!usesCustomSleepImages()) {
+      GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+    }
+    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  } else {
+    if (!usesCustomSleepImages()) {
+      GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+    }
+  }
+
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
-      renderBlankSleepScreen();
-      break;
+      return renderBlankSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
-      renderCustomSleepScreen();
-      break;
+      return renderCustomSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
+      return renderCoverSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
-      renderCoverSleepScreen();
-      break;
+      if (APP_STATE.lastSleepFromReader) {
+        return renderCoverSleepScreen();
+      } else {
+        return renderCustomSleepScreen();
+      }
     default:
       renderDefaultSleepScreen();
       break;
@@ -55,10 +81,12 @@ void SleepActivity::renderCustomSleepScreen() const {
   const std::string sleepDir = SleepImageUtils::resolveConfiguredSleepDirectory();
   auto dir = sleepDir.empty() ? FsFile{} : Storage.open(sleepDir.c_str());
 
+  std::string selectedPath;
+  bool selectedIsPng = false;
+
   if (dir && dir.isDirectory()) {
     std::vector<std::string> files;
     char name[500];
-    // collect all valid BMP files
     for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
       if (file.isDirectory()) {
         file.close();
@@ -71,65 +99,85 @@ void SleepActivity::renderCustomSleepScreen() const {
         continue;
       }
 
-      if (!FsHelpers::hasBmpExtension(filename)) {
-        LOG_DBG("SLP", "Skipping non-.bmp file name: %s", name);
+      const bool isBmp = FsHelpers::hasBmpExtension(filename);
+      const bool isPng = FsHelpers::hasPngExtension(filename);
+      if (!isBmp && !isPng) {
+        LOG_DBG("SLP", "Skipping unsupported sleep image: %s", name);
         file.close();
         continue;
       }
-      Bitmap bitmap(file);
-      if (bitmap.parseHeaders() != BmpReaderError::Ok) {
-        LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
-        file.close();
-        continue;
+
+      if (isBmp) {
+        Bitmap bitmap(file);
+        if (bitmap.parseHeaders() != BmpReaderError::Ok) {
+          LOG_DBG("SLP", "Skipping invalid BMP file: %s", name);
+          file.close();
+          continue;
+        }
       }
+
       files.emplace_back(filename);
       file.close();
     }
     const auto numFiles = files.size();
     if (numFiles > 0) {
-      size_t fileIndex = 0;
+      uint16_t fileIndex = 0;
+      const uint16_t recentIndex = APP_STATE.getMostRecentSleepIndex();
       if (SETTINGS.sleepImageOrder == CrossPointSettings::SLEEP_IMAGE_SEQUENTIAL) {
-        if (APP_STATE.lastSleepImage == UINT8_MAX || APP_STATE.lastSleepImage >= numFiles - 1) {
+        if (recentIndex == UINT16_MAX || recentIndex >= numFiles - 1) {
           fileIndex = 0;
         } else {
-          fileIndex = APP_STATE.lastSleepImage + 1;
+          fileIndex = static_cast<uint16_t>(recentIndex + 1);
         }
       } else {
-        fileIndex = random(numFiles);
-        while (numFiles > 1 && APP_STATE.lastSleepImage != UINT8_MAX && fileIndex == APP_STATE.lastSleepImage) {
-          fileIndex = random(numFiles);
+        const uint16_t fileCount = static_cast<uint16_t>(std::min(numFiles, static_cast<size_t>(UINT16_MAX)));
+        const uint8_t window =
+            static_cast<uint8_t>(std::min(static_cast<size_t>(APP_STATE.recentSleepFill), numFiles - 1));
+        fileIndex = static_cast<uint16_t>(random(fileCount));
+        for (uint8_t attempt = 0; attempt < 20 && APP_STATE.isRecentSleep(fileIndex, window); attempt++) {
+          fileIndex = static_cast<uint16_t>(random(fileCount));
         }
       }
 
-      APP_STATE.lastSleepImage = static_cast<uint8_t>(fileIndex);
+      APP_STATE.pushRecentSleep(fileIndex);
       APP_STATE.saveToFile();
-      const auto filename = sleepDir + "/" + files[fileIndex];
-      FsFile file;
-      if (SleepScreenCache::load(renderer, filename)) {
-        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-        dir.close();
+      selectedPath = sleepDir + "/" + files[static_cast<size_t>(fileIndex)];
+      selectedIsPng = FsHelpers::hasPngExtension(files[static_cast<size_t>(fileIndex)]);
+    }
+  }
+  if (dir) {
+    dir.close();
+  }
+
+  if (!selectedPath.empty()) {
+    if (selectedIsPng) {
+      if (renderPngSleepScreen(selectedPath)) {
         return;
       }
-      if (Storage.openFileForRead("SLP", filename, file)) {
-        LOG_DBG("SLP", "Loading sleep image: %s/%s", sleepDir.c_str(), files[fileIndex].c_str());
+    } else {
+      GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+      FsFile file;
+      if (SleepScreenCache::load(renderer, selectedPath)) {
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        return;
+      }
+      if (Storage.openFileForRead("SLP", selectedPath, file)) {
+        LOG_DBG("SLP", "Loading sleep image: %s", selectedPath.c_str());
         delay(100);
         Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          renderBitmapSleepScreen(bitmap, filename);
+          renderBitmapSleepScreen(bitmap, selectedPath);
           file.close();
-          dir.close();
           return;
         }
         file.close();
       }
     }
   }
-  if (dir) dir.close();
 
-  // Look for sleep.bmp on the root of the sd card to determine if we should
-  // render a custom sleep screen instead of the default.
   FsFile file;
   if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
+    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Loading: /sleep.bmp");
@@ -145,6 +193,10 @@ void SleepActivity::renderCustomSleepScreen() const {
     file.close();
   }
 
+  if (renderPngSleepScreen("/sleep.png")) {
+    return;
+  }
+
   renderDefaultSleepScreen();
 }
 
@@ -152,34 +204,41 @@ void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  renderer.clearScreen();
-  renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, "CPR-vCodex", true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
+  constexpr int logoWidth = 174;
+  constexpr int logoHeight = 24;
+  constexpr int logoTextGap = 10;
+  constexpr int subtitleGap = 25;
+  const int logoX = (pageWidth - logoWidth) / 2;
+  const int logoY = (pageHeight - logoHeight) / 2;
+  const int titleY = logoY + logoHeight + logoTextGap;
+  const int subtitleY = titleY + subtitleGap;
 
-  // Make sleep screen dark unless light is selected in settings
+  renderer.clearScreen();
+  renderer.drawIcon(Logo, logoX, logoY, logoWidth, logoHeight);
+  renderer.drawCenteredText(UI_10_FONT_ID, titleY, tr(STR_CPR_VCODEX), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(SMALL_FONT_ID, subtitleY, tr(STR_SLEEPING));
+
   if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT) {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::string& sourcePath) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  float cropX = 0, cropY = 0;
+  float cropX = 0;
+  float cropY = 0;
 
   LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
-    // image will scale, make sure placement is right
     float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
     const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(pageHeight);
 
     LOG_DBG("SLP", "bitmap ratio: %f, screen ratio: %f", ratio, screenRatio);
     if (ratio > screenRatio) {
-      // image wider than viewport ratio, scaled down image needs to be centered vertically
       if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP) {
         cropX = 1.0f - (screenRatio / ratio);
         LOG_DBG("SLP", "Cropping bitmap x: %f", cropX);
@@ -189,7 +248,6 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::str
       y = std::round((static_cast<float>(pageHeight) - static_cast<float>(pageWidth) / ratio) / 2);
       LOG_DBG("SLP", "Centering with ratio %f to y=%d", ratio, y);
     } else {
-      // image taller than viewport ratio, scaled down image needs to be centered horizontally
       if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP) {
         cropY = 1.0f - (ratio / screenRatio);
         LOG_DBG("SLP", "Cropping bitmap y: %f", cropY);
@@ -200,7 +258,6 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::str
       LOG_DBG("SLP", "Centering with ratio %f to x=%d", ratio, x);
     }
   } else {
-    // center the image
     x = (pageWidth - bitmap.getWidth()) / 2;
     y = (pageHeight - bitmap.getHeight()) / 2;
   }
@@ -241,6 +298,19 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const std::str
   }
 }
 
+bool SleepActivity::renderPngSleepScreen(const std::string& sourcePath) const {
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  if (!PngSleepRenderer::drawTransparentPng(sourcePath, renderer, 0, 0, pageWidth, pageHeight)) {
+    return false;
+  }
+
+  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  return true;
+}
+
 void SleepActivity::renderCoverSleepScreen() const {
   void (SleepActivity::*renderNoCoverSleepScreen)() const;
   switch (SETTINGS.sleepScreen) {
@@ -257,11 +327,9 @@ void SleepActivity::renderCoverSleepScreen() const {
   }
 
   std::string coverBmpPath;
-  bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+  const bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
 
-  // Check if the current book is XTC, TXT, or EPUB
   if (FsHelpers::hasXtcExtension(APP_STATE.openEpubPath)) {
-    // Handle XTC file
     Xtc lastXtc(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastXtc.load()) {
       LOG_ERR("SLP", "Failed to load last XTC");
@@ -275,7 +343,6 @@ void SleepActivity::renderCoverSleepScreen() const {
 
     coverBmpPath = lastXtc.getCoverBmpPath();
   } else if (FsHelpers::hasTxtExtension(APP_STATE.openEpubPath)) {
-    // Handle TXT file - looks for cover image in the same folder
     Txt lastTxt(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastTxt.load()) {
       LOG_ERR("SLP", "Failed to load last TXT");
@@ -289,9 +356,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
     coverBmpPath = lastTxt.getCoverBmpPath();
   } else if (FsHelpers::hasEpubExtension(APP_STATE.openEpubPath)) {
-    // Handle EPUB file
     Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
-    // Skip loading css since we only need metadata here
     if (!lastEpub.load(true, true)) {
       LOG_ERR("SLP", "Failed to load last epub");
       return (this->*renderNoCoverSleepScreen)();
@@ -328,5 +393,5 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }

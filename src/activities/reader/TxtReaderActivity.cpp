@@ -7,8 +7,6 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
-#include <algorithm>
-
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "AchievementsStore.h"
@@ -59,8 +57,6 @@ void TxtReaderActivity::onEnter() {
   }
 
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-  renderer.setTextDarkness(SETTINGS.textDarkness);
-  pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
 
   txt->setupCacheDir();
 
@@ -82,7 +78,6 @@ void TxtReaderActivity::onExit() {
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  renderer.setTextDarkness(0);
 
   pageOffsets.clear();
   currentPageLines.clear();
@@ -95,12 +90,16 @@ void TxtReaderActivity::onExit() {
 
 void TxtReaderActivity::loop() {
   READING_STATS.tickActiveSession();
+  const unsigned long nowMs = millis();
 
-  const auto powerAction =
-      ReaderUtils::consumePowerButtonReaderAction(mappedInput, pendingPowerSingleClick, pendingPowerReleaseMs);
-  if (powerAction == ReaderUtils::PowerButtonReaderAction::FullRefresh) {
-    pendingManualFullRefresh = true;
-    requestUpdate();
+  if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
+    waitingForConfirmSecondClick = false;
+    firstConfirmClickMs = 0UL;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) &&
+      ReaderUtils::registerConfirmDoubleClick(waitingForConfirmSecondClick, firstConfirmClickMs, nowMs)) {
+    requestCurrentPageFullRefresh();
     return;
   }
 
@@ -120,10 +119,7 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput, false);
-  if (powerAction == ReaderUtils::PowerButtonReaderAction::NextPage) {
-    nextTriggered = true;
-  }
+  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -132,11 +128,22 @@ void TxtReaderActivity::loop() {
     READING_STATS.noteActivity();
     currentPage--;
     requestUpdate();
-  } else if (nextTriggered && currentPage < totalPages - 1) {
-    READING_STATS.noteActivity();
-    currentPage++;
-    requestUpdate();
+  } else if (nextTriggered) {
+    if (currentPage < totalPages - 1) {
+      READING_STATS.noteActivity();
+      currentPage++;
+      requestUpdate();
+    } else {
+      READING_STATS.updateProgress(100, true, "", 100);
+      exitReaderToHomeOrStats(renderer, mappedInput, txt ? txt->getPath() : "");
+    }
   }
+}
+
+void TxtReaderActivity::requestCurrentPageFullRefresh() {
+  READING_STATS.noteActivity();
+  pendingForceFullRefresh = true;
+  requestUpdate();
 }
 
 void TxtReaderActivity::initializeReader() {
@@ -351,9 +358,6 @@ void TxtReaderActivity::render(RenderLock&&) {
     return;
   }
 
-  const bool forceFullRefresh = pendingManualFullRefresh;
-  pendingManualFullRefresh = false;
-
   // Initialize reader if not done
   if (!initialized) {
     initializeReader();
@@ -377,13 +381,13 @@ void TxtReaderActivity::render(RenderLock&&) {
   loadPageAtOffset(offset, currentPageLines, nextOffset);
 
   renderer.clearScreen();
-  renderPage(forceFullRefresh);
+  renderPage();
 
   // Save progress
   saveProgress();
 }
 
-void TxtReaderActivity::renderPage(const bool forceFullRefresh) {
+void TxtReaderActivity::renderPage() {
   const int lineHeight = renderer.getLineHeight(cachedFontId);
   const int contentWidth = viewportWidth;
 
@@ -432,6 +436,8 @@ void TxtReaderActivity::renderPage(const bool forceFullRefresh) {
   renderLines();
   renderStatusBar();
 
+  const bool forceFullRefresh = pendingForceFullRefresh;
+  pendingForceFullRefresh = false;
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, forceFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {
@@ -453,12 +459,15 @@ void TxtReaderActivity::saveProgress() const {
   const uint8_t progressPercent =
       totalPages > 0 ? static_cast<uint8_t>(std::min(100, ((currentPage + 1) * 100) / totalPages)) : 0;
   READING_STATS.updateProgress(progressPercent, totalPages > 0 && currentPage + 1 >= totalPages, "", progressPercent);
+
   FsFile f;
-  const std::string progressPath = getStableProgressPath(stableBookId);
+  std::string progressPath = getStableProgressPath(stableBookId);
   if (!progressPath.empty()) {
     BookIdentity::ensureStableDataDir(stableBookId);
+  } else {
+    progressPath = getLegacyProgressPath(*txt);
   }
-  if (Storage.openFileForWrite("TRS", progressPath.empty() ? getLegacyProgressPath(*txt) : progressPath, f)) {
+  if (Storage.openFileForWrite("TRS", progressPath, f)) {
     uint8_t data[4];
     data[0] = currentPage & 0xFF;
     data[1] = (currentPage >> 8) & 0xFF;
@@ -471,17 +480,15 @@ void TxtReaderActivity::saveProgress() const {
 
 void TxtReaderActivity::loadProgress() {
   FsFile f;
-  const std::string progressPath = getStableProgressPath(stableBookId);
+  bool loadedFromLegacy = false;
+  const std::string stableProgressPath = getStableProgressPath(stableBookId);
   const std::string legacyProgressPath = getLegacyProgressPath(*txt);
-  bool loadedLegacyProgress = false;
-  bool openedProgress = false;
-  if (!progressPath.empty() && Storage.openFileForRead("TRS", progressPath, f)) {
-    openedProgress = true;
-  } else if (Storage.openFileForRead("TRS", legacyProgressPath, f)) {
-    loadedLegacyProgress = true;
-    openedProgress = true;
+  const std::string progressPath =
+      (!stableProgressPath.empty() && Storage.exists(stableProgressPath.c_str())) ? stableProgressPath : legacyProgressPath;
+  if (progressPath == legacyProgressPath) {
+    loadedFromLegacy = !stableProgressPath.empty() && Storage.exists(legacyProgressPath.c_str());
   }
-  if (openedProgress) {
+  if (Storage.openFileForRead("TRS", progressPath, f)) {
     uint8_t data[4];
     if (f.read(data, 4) == 4) {
       currentPage = data[0] + (data[1] << 8);
@@ -494,7 +501,7 @@ void TxtReaderActivity::loadProgress() {
       LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
     }
     f.close();
-    if (loadedLegacyProgress) {
+    if (loadedFromLegacy) {
       saveProgress();
     }
   }
@@ -525,7 +532,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, magic);
   if (magic != CACHE_MAGIC) {
     LOG_DBG("TRS", "Cache magic mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -533,7 +539,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, version);
   if (version != CACHE_VERSION) {
     LOG_DBG("TRS", "Cache version mismatch (%d != %d), rebuilding", version, CACHE_VERSION);
-    f.close();
     return false;
   }
 
@@ -541,7 +546,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, fileSize);
   if (fileSize != txt->getFileSize()) {
     LOG_DBG("TRS", "Cache file size mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -549,7 +553,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, cachedWidth);
   if (cachedWidth != viewportWidth) {
     LOG_DBG("TRS", "Cache viewport width mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -557,7 +560,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, cachedLines);
   if (cachedLines != linesPerPage) {
     LOG_DBG("TRS", "Cache lines per page mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -565,7 +567,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, fontId);
   if (fontId != cachedFontId) {
     LOG_DBG("TRS", "Cache font ID mismatch (%d != %d), rebuilding", fontId, cachedFontId);
-    f.close();
     return false;
   }
 
@@ -573,7 +574,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, margin);
   if (margin != cachedScreenMargin) {
     LOG_DBG("TRS", "Cache screen margin mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -581,7 +581,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, alignment);
   if (alignment != cachedParagraphAlignment) {
     LOG_DBG("TRS", "Cache paragraph alignment mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -598,7 +597,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
     pageOffsets.push_back(offset);
   }
 
-  f.close();
   totalPages = pageOffsets.size();
   LOG_DBG("TRS", "Loaded page index cache: %d pages", totalPages);
   return true;
@@ -628,6 +626,5 @@ void TxtReaderActivity::savePageIndexCache() const {
     serialization::writePod(f, static_cast<uint32_t>(offset));
   }
 
-  f.close();
   LOG_DBG("TRS", "Saved page index cache: %d pages", totalPages);
 }

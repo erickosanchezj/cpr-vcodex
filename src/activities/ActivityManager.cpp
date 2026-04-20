@@ -6,6 +6,7 @@
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
 #include "home/RecentBooksActivity.h"
@@ -136,10 +137,10 @@ void ActivityManager::loop() {
 
   if (requestedUpdate) {
     requestedUpdate = false;
-    // Coalesce multiple update requests into a single pending render.
-    // This reduces redundant e-ink refreshes during activity transitions.
+    // Using direct notification to signal the render task to update
+    // Increment counter so multiple rapid calls won't be lost
     if (renderTaskHandle) {
-      xTaskNotify(renderTaskHandle, 1, eSetBits);
+      xTaskNotify(renderTaskHandle, 1, eIncrement);
     }
   }
 }
@@ -207,6 +208,8 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
   replaceActivity(std::make_unique<FullScreenMessageActivity>(renderer, mappedInput, std::move(message), style));
 }
 
+void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
+
 void ActivityManager::goHome() { replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput)); }
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
@@ -237,7 +240,7 @@ bool ActivityManager::skipLoopDelay() const { return currentActivity && currentA
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
     if (renderTaskHandle) {
-      xTaskNotify(renderTaskHandle, 1, eSetBits);
+      xTaskNotify(renderTaskHandle, 1, eIncrement);
     }
   } else {
     // Deferring the update until current loop is finished

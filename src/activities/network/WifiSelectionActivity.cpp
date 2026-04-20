@@ -7,9 +7,7 @@
 
 #include <algorithm>
 #include <map>
-#include <ctime>
 
-#include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
@@ -17,6 +15,10 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/TimeUtils.h"
+
+#if defined(ESP32) || defined(ARDUINO_ARCH_ESP32)
+#include <esp_mac.h>
+#endif
 
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -41,13 +43,26 @@ void WifiSelectionActivity::onEnter() {
   forgetPromptSelection = 0;
   autoConnecting = false;
 
-  // Cache MAC address for display
+  // Cache the MAC address for display.
+  // On ESP32, read the base MAC directly to avoid placeholder values when the
+  // WiFi driver has not fully initialized yet.
+#if defined(ESP32) || defined(ARDUINO_ARCH_ESP32)
+  uint8_t baseMac[6];
+  esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
+  char macStr[64];
+  snprintf(macStr, sizeof(macStr), "%s %02x-%02x-%02x-%02x-%02x-%02x", tr(STR_MAC_ADDRESS), baseMac[0], baseMac[1],
+           baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
+  cachedMacAddress = std::string(macStr);
+#else
+  WiFi.mode(WIFI_STA);
+  delay(10);
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char macStr[64];
   snprintf(macStr, sizeof(macStr), "%s %02x-%02x-%02x-%02x-%02x-%02x", tr(STR_MAC_ADDRESS), mac[0], mac[1], mac[2],
            mac[3], mac[4], mac[5]);
   cachedMacAddress = std::string(macStr);
+#endif
 
   // Trigger first update to show scanning message
   requestUpdate();
@@ -195,20 +210,18 @@ void WifiSelectionActivity::selectNetwork(const int index) {
     // Show password entry
     state = WifiSelectionState::PASSWORD_ENTRY;
     // Don't allow screen updates while changing activity
-    startActivityForResult(
-        std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD),
-                                                "",    // No initial text
-                                                64,    // Max password length
-                                                false  // Show password by default (hard keyboard to use)
-                                                ),
-        [this](const ActivityResult& result) {
-          if (result.isCancelled) {
-            state = WifiSelectionState::NETWORK_LIST;
-          } else {
-            enteredPassword = std::get<KeyboardResult>(result.data).text;
-            // state will be updated in next loop iteration
-          }
-        });
+    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD),
+                                                                   "",  // No initial text
+                                                                   64,  // Max password length
+                                                                   InputType::Password),
+                           [this](const ActivityResult& result) {
+                             if (result.isCancelled) {
+                               state = WifiSelectionState::NETWORK_LIST;
+                             } else {
+                               enteredPassword = std::get<KeyboardResult>(result.data).text;
+                               // state will be updated in next loop iteration
+                             }
+                           });
   } else {
     // Connect directly for open networks
     attemptConnection();
@@ -222,7 +235,10 @@ void WifiSelectionActivity::attemptConnection() {
   connectionError.clear();
   requestUpdate();
 
+  WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true, true);  // Abort any in-progress SDK auto-connect and clear NVS-saved SSID
+  delay(100);
 
   // Set hostname so routers show "CrossPoint-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
   String mac = WiFi.macAddress();
@@ -259,14 +275,12 @@ void WifiSelectionActivity::checkConnectionStatus() {
       WIFI_STORE.setLastConnectedSsid(selectedSSID);
     }
 
-    if (SETTINGS.autoSyncDay) {
-      LOG_DBG("WIFI", "Auto-syncing date/time after Wi-Fi connection");
-      TimeUtils::syncTimeWithNtp();
-      const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
-      if (currentValidTimestamp > 0) {
-        APP_STATE.lastKnownValidTimestamp = std::max(APP_STATE.lastKnownValidTimestamp, currentValidTimestamp);
-        APP_STATE.saveToFile();
-      }
+    LOG_DBG("WIFI", "Auto-syncing date/time after Wi-Fi connection");
+    TimeUtils::syncTimeWithNtp();
+    const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
+    if (currentValidTimestamp > 0) {
+      APP_STATE.registerValidTimeSync(currentValidTimestamp);
+      APP_STATE.saveToFile();
     }
 
     // If we entered a new password, ask if user wants to save it

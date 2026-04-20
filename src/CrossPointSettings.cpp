@@ -28,6 +28,18 @@ constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/settings.json";
 constexpr char SETTINGS_FILE_BAK[] = "/.crosspoint/settings.bin.bak";
 constexpr uint8_t LEGACY_FONT_SIZE_COUNT = 4;
 
+uint8_t migrateLegacyUiTheme(const uint8_t legacyUiTheme) {
+  switch (legacyUiTheme) {
+    case 0:  // Classic
+    case 1:  // Lyra
+    default:
+      return CrossPointSettings::LYRA;
+    case 2:  // Lyra Extended
+    case 3:  // Lyra Custom
+      return CrossPointSettings::LYRA_CUSTOM;
+  }
+}
+
 uint8_t migrateLegacyFontSize(const uint8_t legacyFontSize) {
   return legacyFontSize < LEGACY_FONT_SIZE_COUNT
              ? static_cast<uint8_t>(legacyFontSize + 1)
@@ -133,7 +145,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
   serialization::readPod(inputFile, version);
   if (version != SETTINGS_FILE_VERSION) {
     LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
-    inputFile.close();
     return false;
   }
 
@@ -208,7 +219,11 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverFilter, SLEEP_SCREEN_COVER_FILTER_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, uiTheme, UI_THEME_COUNT);
+    {
+      uint8_t legacyUiTheme = static_cast<uint8_t>(LYRA);
+      serialization::readPod(inputFile, legacyUiTheme);
+      uiTheme = migrateLegacyUiTheme(legacyUiTheme);
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -231,7 +246,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
     applyLegacyFrontButtonLayout(*this);
   }
 
-  inputFile.close();
   LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
 }
@@ -302,6 +316,26 @@ uint64_t CrossPointSettings::getDailyGoalMs() const {
   }
 }
 
+uint8_t CrossPointSettings::getSyncDayReminderStartThreshold() const {
+  switch (syncDayReminderStarts) {
+    case SYNC_DAY_REMINDER_OFF:
+    default:
+      return 0;
+    case SYNC_DAY_REMINDER_10:
+      return 10;
+    case SYNC_DAY_REMINDER_20:
+      return 20;
+    case SYNC_DAY_REMINDER_30:
+      return 30;
+    case SYNC_DAY_REMINDER_40:
+      return 40;
+    case SYNC_DAY_REMINDER_50:
+      return 50;
+    case SYNC_DAY_REMINDER_60:
+      return 60;
+  }
+}
+
 int CrossPointSettings::getRefreshFrequency() const {
   switch (refreshFrequency) {
     case REFRESH_1:
@@ -369,6 +403,7 @@ int CrossPointSettings::getReaderFontId() const {
     case LEXEND:
       switch (fontSize) {
         case X_SMALL:
+          return LEXEND_10_FONT_ID;
         case SMALL:
           return LEXEND_12_FONT_ID;
         case MEDIUM:

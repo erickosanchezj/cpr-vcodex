@@ -15,22 +15,27 @@
 #include "components/icons/book.h"
 #include "components/icons/book24.h"
 #include "components/icons/cover.h"
+#include "components/icons/file.h"
 #include "components/icons/file24.h"
 #include "components/icons/folder.h"
 #include "components/icons/folder24.h"
+#include "components/icons/heart.h"
+#include "components/icons/heart24.h"
 #include "components/icons/hotspot.h"
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings2.h"
+#include "components/icons/text.h"
 #include "components/icons/text24.h"
+#include "components/icons/trophy.h"
+#include "components/icons/trophy24.h"
 #include "components/icons/transfer.h"
 #include "components/icons/wifi.h"
 #include "fontIds.h"
 
 // Internal constants
 namespace {
-constexpr int batteryPercentSpacing = 4;
 constexpr int hPaddingInSelection = 8;
 constexpr int cornerRadius = 6;
 constexpr int topHintButtonY = 345;
@@ -45,42 +50,25 @@ int coverWidth = 0;
 
 void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
                          uint16_t percentage) {
-  // Top line
-  renderer.drawLine(x + 1, y, x + battWidth - 3, y);
-  // Bottom line
-  renderer.drawLine(x + 1, y + rectHeight - 1, x + battWidth - 3, y + rectHeight - 1);
-  // Left line
-  renderer.drawLine(x, y + 1, x, y + rectHeight - 2);
-  // Battery end
-  renderer.drawLine(x + battWidth - 2, y + 1, x + battWidth - 2, y + rectHeight - 2);
-  renderer.drawPixel(x + battWidth - 1, y + 3);
-  renderer.drawPixel(x + battWidth - 1, y + rectHeight - 4);
-  renderer.drawLine(x + battWidth - 0, y + 4, x + battWidth - 0, y + rectHeight - 5);
+  BaseTheme::drawBatteryOutline(renderer, x, y, battWidth, rectHeight);
 
   const bool charging = gpio.isUsbConnected();
 
-  // Draw bars
-  if (percentage > 10 || charging) {
-    renderer.fillRect(x + 2, y + 2, 3, rectHeight - 4);
-  }
-  if (percentage > 40 || charging) {
-    renderer.fillRect(x + 6, y + 2, 3, rectHeight - 4);
-  }
-  if (percentage > 70) {
-    renderer.fillRect(x + 10, y + 2, 3, rectHeight - 4);
-  }
-
   if (charging) {
-    const int boltX = x + 4;
-    const int boltY = y + 2;
-    renderer.drawLine(boltX + 4, boltY + 0, boltX + 5, boltY + 0, false);
-    renderer.drawLine(boltX + 3, boltY + 1, boltX + 4, boltY + 1, false);
-    renderer.drawLine(boltX + 2, boltY + 2, boltX + 5, boltY + 2, false);
-    renderer.drawLine(boltX + 3, boltY + 3, boltX + 4, boltY + 3, false);
-    renderer.drawLine(boltX + 2, boltY + 4, boltX + 3, boltY + 4, false);
-    renderer.drawLine(boltX + 1, boltY + 5, boltX + 4, boltY + 5, false);
-    renderer.drawLine(boltX + 2, boltY + 6, boltX + 3, boltY + 6, false);
-    renderer.drawLine(boltX + 1, boltY + 7, boltX + 2, boltY + 7, false);
+    // Draw solid fill when charging so lightning bolt is visible
+    renderer.fillRect(x + 2, y + 2, battWidth - 5, rectHeight - 4);
+    BaseTheme::drawBatteryLightningBolt(renderer, x + 4, y + 2);
+  } else {
+    // Draw bars when not charging
+    if (percentage > 10) {
+      renderer.fillRect(x + 2, y + 2, 3, rectHeight - 4);
+    }
+    if (percentage > 40) {
+      renderer.fillRect(x + 6, y + 2, 3, rectHeight - 4);
+    }
+    if (percentage > 70) {
+      renderer.fillRect(x + 10, y + 2, 3, rectHeight - 4);
+    }
   }
 }
 
@@ -97,6 +85,10 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return Book24Icon;
       case UIIcon::File:
         return File24Icon;
+      case UIIcon::Trophy:
+        return Trophy24Icon;
+      case UIIcon::Heart:
+        return Heart24Icon;
       default:
         return nullptr;
     }
@@ -106,6 +98,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return FolderIcon;
       case UIIcon::Book:
         return BookIcon;
+      case UIIcon::File:
+        return FileIcon;
       case UIIcon::Recent:
         return RecentIcon;
       case UIIcon::Settings:
@@ -114,10 +108,16 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return TransferIcon;
       case UIIcon::Library:
         return LibraryIcon;
+      case UIIcon::Text:
+        return TextIcon;
+      case UIIcon::Trophy:
+        return TrophyIcon;
       case UIIcon::Wifi:
         return WifiIcon;
       case UIIcon::Hotspot:
         return HotspotIcon;
+      case UIIcon::Heart:
+        return HeartIcon;
       default:
         return nullptr;
     }
@@ -125,18 +125,39 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   return nullptr;
 }
 
-int fallbackIconSize(UIIcon icon, int requestedSize) {
-  if (requestedSize == 32) {
-    switch (icon) {
-      case UIIcon::Text:
-      case UIIcon::File:
-      case UIIcon::Image:
-        return 24;
-      default:
-        return 0;
+bool drawUiIcon(const GfxRenderer& renderer, const UIIcon icon, const int x, const int y, const int size) {
+  if (const uint8_t* iconBitmap = iconForName(icon, size); iconBitmap != nullptr) {
+    renderer.drawIcon(iconBitmap, x, y, size, size);
+    return true;
+  }
+
+  if (size > 24) {
+    if (const uint8_t* fallbackBitmap = iconForName(icon, 24); fallbackBitmap != nullptr) {
+      const int inset = (size - 24) / 2;
+      renderer.drawIcon(fallbackBitmap, x + inset, y + inset, 24, 24);
+      return true;
     }
   }
-  return 0;
+
+  return false;
+}
+
+void drawCompletedListBadge(const GfxRenderer& renderer, const int x, const int y, const int size) {
+  const int safeSize = std::max(12, size);
+  const int strokeWidth = safeSize >= 16 ? 2 : 1;
+
+  renderer.fillRect(x, y, safeSize, safeSize, true);
+  renderer.drawRect(x, y, safeSize, safeSize, false);
+
+  const int leftX = x + safeSize * 3 / 16;
+  const int midX = x + safeSize * 7 / 16;
+  const int rightX = x + safeSize * 13 / 16;
+  const int leftY = y + safeSize * 9 / 16;
+  const int midY = y + safeSize * 12 / 16;
+  const int rightY = y + safeSize * 4 / 16;
+
+  renderer.drawLine(leftX, leftY, midX, midY, strokeWidth, false);
+  renderer.drawLine(midX, midY, rightX, rightY, strokeWidth, false);
 }
 }  // namespace
 
@@ -146,8 +167,8 @@ void LyraTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bo
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
-    renderer.drawText(SMALL_FONT_ID, rect.x + batteryPercentSpacing + LyraMetrics::values.batteryWidth, rect.y,
-                      percentageText.c_str());
+    renderer.drawText(SMALL_FONT_ID, rect.x + BaseTheme::batteryPercentSpacing + LyraMetrics::values.batteryWidth,
+                      rect.y, percentageText.c_str());
   }
 
   drawLyraBatteryIcon(renderer, rect.x, rect.y + 6, LyraMetrics::values.batteryWidth, rect.height, percentage);
@@ -162,9 +183,10 @@ void LyraTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
     const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, percentageText.c_str());
     // Clear the area where we're going to draw the text to prevent ghosting
     const auto textHeight = renderer.getTextHeight(SMALL_FONT_ID);
-    renderer.fillRect(rect.x - textWidth - batteryPercentSpacing, rect.y, textWidth, textHeight, false);
+    renderer.fillRect(rect.x - textWidth - BaseTheme::batteryPercentSpacing, rect.y, textWidth, textHeight, false);
     // Draw text to the left of the icon
-    renderer.drawText(SMALL_FONT_ID, rect.x - textWidth - batteryPercentSpacing, rect.y, percentageText.c_str());
+    renderer.drawText(SMALL_FONT_ID, rect.x - textWidth - BaseTheme::batteryPercentSpacing, rect.y,
+                      percentageText.c_str());
   }
 
   drawLyraBatteryIcon(renderer, rect.x, rect.y + 6, LyraMetrics::values.batteryWidth, rect.height, percentage);
@@ -229,7 +251,8 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
   }
 
   for (const auto& tab : tabs) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
+    const int fontId = tab.compact ? SMALL_FONT_ID : UI_10_FONT_ID;
+    const int textWidth = renderer.getTextWidth(fontId, tab.label, EpdFontFamily::REGULAR);
 
     if (tab.selected) {
       if (selected) {
@@ -243,8 +266,8 @@ void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::ve
       }
     }
 
-    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, rect.y + 6, tab.label, !(tab.selected && selected),
-                      EpdFontFamily::REGULAR);
+    renderer.drawText(fontId, currentX + hPaddingInSelection, rect.y + (tab.compact ? 8 : 6), tab.label,
+                      !(tab.selected && selected), EpdFontFamily::REGULAR);
 
     currentX += textWidth + LyraMetrics::values.tabSpacing + 2 * hPaddingInSelection;
   }
@@ -256,7 +279,8 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowTitle,
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
-                         const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
+                         const std::function<std::string(int index)>& rowValue, bool highlightValue,
+                         const std::function<bool(int index)>& rowCompleted) const {
   int rowHeight =
       (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
@@ -316,21 +340,17 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     renderer.drawText(UI_10_FONT_ID, textX, itemY + 7, item.c_str(), true);
 
     if (rowIcon != nullptr) {
-      UIIcon icon = rowIcon(i);
-      int drawSize = iconSize;
-      const uint8_t* iconBitmap = iconForName(icon, drawSize);
-      if (iconBitmap == nullptr) {
-        const int fallbackSize = fallbackIconSize(icon, iconSize);
-        if (fallbackSize > 0) {
-          drawSize = fallbackSize;
-          iconBitmap = iconForName(icon, drawSize);
-        }
-      }
-      if (iconBitmap != nullptr) {
-        const int iconX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection +
-                          std::max(0, (iconSize - drawSize) / 2);
-        const int adjustedIconY = itemY + iconY + std::max(0, (iconSize - drawSize) / 2);
-        renderer.drawIcon(iconBitmap, iconX, adjustedIconY, drawSize, drawSize);
+      const int iconBaseX = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
+      const int iconBaseY = itemY + iconY;
+
+      if (rowCompleted != nullptr && rowCompleted(i)) {
+        const int badgeSize = iconSize >= 32 ? 18 : 14;
+        const int badgeX = iconBaseX + std::max(0, (iconSize - badgeSize) / 2);
+        const int badgeY = iconBaseY + std::max(0, (iconSize - badgeSize) / 2);
+        drawCompletedListBadge(renderer, badgeX, badgeY, badgeSize);
+      } else {
+        UIIcon icon = rowIcon(i);
+        (void)drawUiIcon(renderer, icon, iconBaseX, iconBaseY, iconSize);
       }
     }
 
@@ -366,6 +386,7 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int buttonHeight = LyraMetrics::values.buttonHintsHeight;
   constexpr int buttonY = LyraMetrics::values.buttonHintsHeight;  // Distance from bottom
   constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
+  // X3 has wider screen in portrait (528 vs 480), use more spacing
   constexpr int x4ButtonPositions[] = {58, 146, 254, 342};
   constexpr int x3ButtonPositions[] = {65, 157, 291, 383};
   const int* buttonPositions = gpio.deviceIsX3() ? x3ButtonPositions : x4ButtonPositions;
@@ -400,6 +421,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   constexpr int buttonMargin = 0;
 
   if (gpio.deviceIsX3()) {
+    // X3 layout: Up on left side, Down on right side, positioned higher
     constexpr int x3ButtonY = 155;
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
@@ -417,6 +439,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
       renderer.drawTextRotated90CW(SMALL_FONT_ID, rightX, x3ButtonY + (buttonHeight + textWidth) / 2, bottomBtn);
     }
   } else {
+    // X4 layout: Both buttons stacked on right side
     const char* labels[] = {topBtn, bottomBtn};
     const int x = screenWidth - buttonWidth;
 
@@ -432,7 +455,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 
     for (int i = 0; i < 2; i++) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
-        const int y = topHintButtonY + (i * buttonHeight + 5);
+        const int y = topHintButtonY + (i * buttonHeight) + 5;
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         renderer.drawTextRotated90CW(SMALL_FONT_ID, x, y + (buttonHeight + textWidth) / 2, labels[i]);
       }
@@ -551,15 +574,15 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                                const std::function<bool(int index)>& showAccessory) const {
   const int availableHeight = std::max(0, rect.height);
   const int gap = LyraMetrics::values.menuSpacing;
-  const int rowHeight = buttonCount > 0
-                            ? std::min(LyraMetrics::values.menuRowHeight,
-                                       (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
-                            : LyraMetrics::values.menuRowHeight;
+  const int rowHeight =
+      buttonCount > 0
+          ? std::min(LyraMetrics::values.menuRowHeight, (availableHeight - gap * std::max(0, buttonCount - 1)) / buttonCount)
+          : LyraMetrics::values.menuRowHeight;
 
   for (int i = 0; i < buttonCount; ++i) {
     int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
-    Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                         rect.y + i * (rowHeight + gap), tileWidth, rowHeight};
+    Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding, rect.y + i * (rowHeight + gap), tileWidth,
+                         rowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -574,19 +597,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
     if (rowIcon != nullptr) {
       UIIcon icon = rowIcon(i);
-      int drawSize = mainMenuIconSize;
-      const uint8_t* iconBitmap = iconForName(icon, drawSize);
-      if (iconBitmap == nullptr) {
-        const int fallbackSize = fallbackIconSize(icon, mainMenuIconSize);
-        if (fallbackSize > 0) {
-          drawSize = fallbackSize;
-          iconBitmap = iconForName(icon, drawSize);
-        }
-      }
-      if (iconBitmap != nullptr) {
-        const int iconX = textX + std::max(0, (mainMenuIconSize - drawSize) / 2);
-        const int iconY = tileRect.y + (tileRect.height - drawSize) / 2 + 1;
-        renderer.drawIcon(iconBitmap, iconX, iconY, drawSize, drawSize);
+      const int iconY = tileRect.y + (tileRect.height - mainMenuIconSize) / 2 + 1;
+      if (drawUiIcon(renderer, icon, textX, iconY, mainMenuIconSize)) {
         textX += mainMenuIconSize + hPaddingInSelection + 2;
       }
     }
@@ -620,7 +632,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 }
 
 Rect LyraTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
-  constexpr int y = 132;
+  // Scale y position proportionally to screen height (16.5% from top)
+  const int y = static_cast<int>(renderer.getScreenHeight() * 0.165f);
   constexpr int outline = 2;
   const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::REGULAR);
   const int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
@@ -656,20 +669,67 @@ void LyraTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
-void LyraTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth) const {
+void LyraTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode,
+                              int contentStartX, int contentWidth) const {
   int lineY = rect.y + rect.height + renderer.getLineHeight(UI_12_FONT_ID) + LyraMetrics::values.verticalSpacing;
-  int lineW = textWidth + hPaddingInSelection * 2;
-  renderer.drawLine(rect.x + (rect.width - lineW) / 2, lineY, rect.x + (rect.width + lineW) / 2, lineY, 3);
+  const int thickness = cursorMode ? 3 : 1;
+  if (contentWidth > 0) {
+    renderer.drawLine(rect.x + contentStartX, lineY, rect.x + contentStartX + contentWidth, lineY, thickness, true);
+  } else {
+    int lineW = textWidth + hPaddingInSelection * 2;
+    renderer.drawLine(rect.x + (rect.width - lineW) / 2, lineY, rect.x + (rect.width + lineW) / 2, lineY, thickness,
+                      true);
+  }
 }
 
-void LyraTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label,
-                                const bool isSelected) const {
+void LyraTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label, const bool isSelected,
+                                const char* secondaryLabel, const KeyboardKeyType keyType,
+                                const bool inactiveSelection) const {
   if (isSelected) {
-    renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, cornerRadius, Color::Black);
+    if (inactiveSelection) {
+      renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, cornerRadius, Color::LightGray);
+    } else if (keyType == KeyboardKeyType::Disabled) {
+      renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, cornerRadius, Color::LightGray);
+    } else {
+      renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, cornerRadius, Color::Black);
+    }
+  } else if (keyType == KeyboardKeyType::Shift || keyType == KeyboardKeyType::Mode || keyType == KeyboardKeyType::Del ||
+             keyType == KeyboardKeyType::Space || keyType == KeyboardKeyType::Ok ||
+             keyType == KeyboardKeyType::Disabled) {
+    renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, cornerRadius, true);
   }
 
+  const bool invert = isSelected && !inactiveSelection;
+
+  if (keyType == KeyboardKeyType::Space) {
+    const int lineHalfWidth = rect.width * 3 / 10;
+    const int centerX = rect.x + rect.width / 2;
+    const int lineY = rect.y + rect.height / 2 + 3;
+    renderer.drawLine(centerX - lineHalfWidth, lineY, centerX + lineHalfWidth, lineY, 3, !invert);
+    return;
+  }
+
+  if (keyType == KeyboardKeyType::Del) {
+    const int centerX = rect.x + rect.width / 2;
+    const int centerY = rect.y + rect.height / 2;
+    const int arrowLen = rect.width / 4;
+    const int arrowHead = arrowLen / 2;
+    renderer.drawLine(centerX - arrowLen / 2, centerY, centerX + arrowLen / 2, centerY, 3, !invert);
+    renderer.drawLine(centerX - arrowLen / 2, centerY, centerX - arrowLen / 2 + arrowHead, centerY - arrowHead, 3,
+                      !invert);
+    renderer.drawLine(centerX - arrowLen / 2, centerY, centerX - arrowLen / 2 + arrowHead, centerY + arrowHead, 3,
+                      !invert);
+    return;
+  }
+
+  const bool hasSecondary = secondaryLabel != nullptr && secondaryLabel[0] != '\0';
   const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, label);
   const int textX = rect.x + (rect.width - textWidth) / 2;
   const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
-  renderer.drawText(UI_12_FONT_ID, textX, textY, label, !isSelected);
+  renderer.drawText(UI_12_FONT_ID, textX, textY, label, !invert);
+
+  if (hasSecondary) {
+    const int secWidth = renderer.getTextWidth(SMALL_FONT_ID, secondaryLabel);
+    renderer.drawText(SMALL_FONT_ID, rect.x + rect.width - secWidth - 1, rect.y, secondaryLabel, !invert);
+  }
 }
