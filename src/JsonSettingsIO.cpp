@@ -20,6 +20,7 @@
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
 #include "util/BookIdentity.h"
+#include "util/CprVcodexLogs.h"
 #include "util/ShortcutRegistry.h"
 #include "util/TimeZoneRegistry.h"
 
@@ -61,22 +62,61 @@ class HalFileStream : public Stream {
 };
 
 bool saveJsonDocumentToFile(const char* moduleName, const char* path, const JsonDocument& doc) {
+  const std::string targetPath = path ? path : "";
+  const std::string tempPath = targetPath + ".tmp";
+
+  if (targetPath.empty()) {
+    LOG_ERR(moduleName, "Missing JSON path for write");
+    CprVcodexLogs::appendEvent(moduleName, "Missing JSON path for write");
+    return false;
+  }
+
+  if (Storage.exists(tempPath.c_str())) {
+    Storage.remove(tempPath.c_str());
+  }
+
   HalFile file;
-  if (!Storage.openFileForWrite(moduleName, path, file)) {
-    LOG_ERR(moduleName, "Could not open JSON file for write: %s", path);
+  if (!Storage.openFileForWrite(moduleName, tempPath.c_str(), file)) {
+    LOG_ERR(moduleName, "Could not open JSON file for write: %s", tempPath.c_str());
+    CprVcodexLogs::appendEvent(moduleName, std::string("Could not open JSON temp file for write: ") + tempPath);
     return false;
   }
 
   const size_t written = serializeJson(doc, file);
   file.flush();
   file.close();
-  return written > 0;
+  if (written == 0) {
+    Storage.remove(tempPath.c_str());
+    CprVcodexLogs::appendEvent(moduleName, std::string("serializeJson wrote 0 bytes for ") + targetPath);
+    return false;
+  }
+
+  if (Storage.exists(targetPath.c_str()) && !Storage.remove(targetPath.c_str())) {
+    Storage.remove(tempPath.c_str());
+    LOG_ERR(moduleName, "Could not remove JSON file before replace: %s", targetPath.c_str());
+    CprVcodexLogs::appendEvent(moduleName,
+                               std::string("Could not remove JSON file before replace: ") + targetPath);
+    return false;
+  }
+
+  if (!Storage.rename(tempPath.c_str(), targetPath.c_str())) {
+    Storage.remove(tempPath.c_str());
+    LOG_ERR(moduleName, "Could not rename JSON temp file to final path: %s", targetPath.c_str());
+    CprVcodexLogs::appendEvent(moduleName,
+                               std::string("Could not rename JSON temp file to final path: ") + targetPath);
+    return false;
+  }
+
+  return true;
 }
 
 bool loadJsonDocumentFromFile(const char* moduleName, const char* path, JsonDocument& doc) {
   HalFile file;
   if (!Storage.openFileForRead(moduleName, path, file)) {
     LOG_ERR(moduleName, "Could not open JSON file for read: %s", path);
+    if (Storage.exists(path)) {
+      CprVcodexLogs::appendEvent(moduleName, std::string("Could not open JSON file for read: ") + path);
+    }
     return false;
   }
 
@@ -85,6 +125,12 @@ bool loadJsonDocumentFromFile(const char* moduleName, const char* path, JsonDocu
   file.close();
   if (error) {
     LOG_ERR(moduleName, "JSON parse error: %s", error.c_str());
+    const std::string reportBody = std::string("File: ") + path + "\nModule: " + moduleName +
+                                   "\nError: " + error.c_str() + "\n";
+    std::string outPath;
+    if (CprVcodexLogs::writeReport("json_error", reportBody, &outPath)) {
+      CprVcodexLogs::appendEvent(moduleName, std::string("Saved JSON parse error report to ") + outPath);
+    }
     return false;
   }
   return true;
@@ -481,6 +527,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("CPS", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("CPS", std::string("Settings JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -638,6 +685,7 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("CPS", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("CPS", std::string("State JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -881,10 +929,7 @@ bool JsonSettingsIO::saveKOReader(const KOReaderCredentialStore& store, const ch
   doc["password_obf"] = obfuscation::obfuscateToBase64(store.getPassword());
   doc["serverUrl"] = store.getServerUrl();
   doc["matchMethod"] = static_cast<uint8_t>(store.getMatchMethod());
-
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
+  return saveJsonDocumentToFile("KRS", path, doc);
 }
 
 bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* json, bool* needsResave) {
@@ -893,6 +938,7 @@ bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* js
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("KRS", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("KRS", std::string("KOReader JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -924,9 +970,7 @@ bool JsonSettingsIO::saveWifi(const WifiCredentialStore& store, const char* path
     obj["password_obf"] = obfuscation::obfuscateToBase64(cred.password);
   }
 
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
+  return saveJsonDocumentToFile("WCS", path, doc);
 }
 
 bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool* needsResave) {
@@ -935,6 +979,7 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("WCS", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("WCS", std::string("WiFi JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -974,9 +1019,7 @@ bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* 
     obj["coverBmpPath"] = book.coverBmpPath;
   }
 
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
+  return saveJsonDocumentToFile("RBS", path, doc);
 }
 
 bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) {
@@ -984,6 +1027,7 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("RBS", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("RBS", std::string("Recent books JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -1024,9 +1068,7 @@ bool JsonSettingsIO::saveFavorites(const FavoritesStore& store, const char* path
     obj["coverBmpPath"] = book.coverBmpPath;
   }
 
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(path, json);
+  return saveJsonDocumentToFile("FAV", path, doc);
 }
 
 bool JsonSettingsIO::loadFavorites(FavoritesStore& store, const char* json) {
@@ -1034,6 +1076,7 @@ bool JsonSettingsIO::loadFavorites(FavoritesStore& store, const char* json) {
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("FAV", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("FAV", std::string("Favorites JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -1058,7 +1101,7 @@ bool JsonSettingsIO::loadFavorites(FavoritesStore& store, const char* json) {
 
 bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char* path) {
   JsonDocument doc;
-  doc["formatVersion"] = 4;
+  doc["formatVersion"] = 5;
 
   JsonArray days = doc["readingDays"].to<JsonArray>();
   for (const auto& day : store.getReadingDays()) {
@@ -1099,6 +1142,7 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
     obj["lastSessionMs"] = book.lastSessionMs;
     obj["firstReadAt"] = book.firstReadAt;
     obj["lastReadAt"] = book.lastReadAt;
+    obj["completedAt"] = book.completedAt;
     obj["lastProgressPercent"] = book.lastProgressPercent;
     obj["chapterProgressPercent"] = book.chapterProgressPercent;
     obj["completed"] = book.completed;
@@ -1119,6 +1163,7 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("RST", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("RST", std::string("Reading stats JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -1190,6 +1235,7 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
     book.lastSessionMs = obj["lastSessionMs"] | static_cast<uint32_t>(0);
     book.firstReadAt = obj["firstReadAt"] | static_cast<uint32_t>(0);
     book.lastReadAt = obj["lastReadAt"] | static_cast<uint32_t>(0);
+    book.completedAt = obj["completedAt"] | static_cast<uint32_t>(0);
     book.lastProgressPercent = obj["lastProgressPercent"] | static_cast<uint8_t>(0);
     book.chapterProgressPercent = obj["chapterProgressPercent"] | static_cast<uint8_t>(0);
     book.completed = obj["completed"] | false;
@@ -1208,14 +1254,19 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
 }
 
 bool JsonSettingsIO::loadReadingStatsFromFile(ReadingStatsStore& store, const char* path) {
-  JsonDocument doc;
-  if (!loadJsonDocumentFromFile("RST", path, doc)) {
+  if (!Storage.exists(path)) {
     return false;
   }
-
-  String json;
-  serializeJson(doc, json);
-  return loadReadingStats(store, json.c_str());
+  const String json = Storage.readFile(path);
+  if (json.isEmpty()) {
+    CprVcodexLogs::appendEvent("RST", std::string("Reading stats file empty or unreadable: ") + path);
+    return false;
+  }
+  const bool loaded = loadReadingStats(store, json.c_str());
+  if (!loaded) {
+    CprVcodexLogs::appendEvent("RST", std::string("Failed to load reading stats from ") + path);
+  }
+  return loaded;
 }
 
 // ---- AchievementsStore ----
@@ -1260,6 +1311,7 @@ bool JsonSettingsIO::loadAchievements(AchievementsStore& store, const char* json
   auto error = deserializeJson(doc, json);
   if (error) {
     LOG_ERR("ACH", "JSON parse error: %s", error.c_str());
+    CprVcodexLogs::appendEvent("ACH", std::string("Achievements JSON parse error: ") + error.c_str());
     return false;
   }
 
@@ -1327,12 +1379,17 @@ bool JsonSettingsIO::loadAchievements(AchievementsStore& store, const char* json
 }
 
 bool JsonSettingsIO::loadAchievementsFromFile(AchievementsStore& store, const char* path) {
-  JsonDocument doc;
-  if (!loadJsonDocumentFromFile("ACH", path, doc)) {
+  if (!Storage.exists(path)) {
     return false;
   }
-
-  String json;
-  serializeJson(doc, json);
-  return loadAchievements(store, json.c_str());
+  const String json = Storage.readFile(path);
+  if (json.isEmpty()) {
+    CprVcodexLogs::appendEvent("ACH", std::string("Achievements file empty or unreadable: ") + path);
+    return false;
+  }
+  const bool loaded = loadAchievements(store, json.c_str());
+  if (!loaded) {
+    CprVcodexLogs::appendEvent("ACH", std::string("Failed to load achievements from ") + path);
+  }
+  return loaded;
 }
