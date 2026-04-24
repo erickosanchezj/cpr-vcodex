@@ -359,6 +359,8 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       clamp(doc["homeCarouselSource"] | s.homeCarouselSource, S::HOME_CAROUSEL_SOURCE_COUNT, s.homeCarouselSource);
   s.displayDay = clamp(doc["displayDay"] | s.displayDay, static_cast<uint8_t>(2), s.displayDay);
   s.autoSyncDay = clamp(doc["autoSyncDay"] | s.autoSyncDay, static_cast<uint8_t>(2), s.autoSyncDay);
+  s.syncDayWifiChoice =
+      clamp(doc["syncDayWifiChoice"] | s.syncDayWifiChoice, S::SYNC_DAY_WIFI_CHOICE_COUNT, s.syncDayWifiChoice);
   s.syncDayReminderStarts =
       clamp(doc["syncDayReminderStarts"] | s.syncDayReminderStarts, S::SYNC_DAY_REMINDER_STARTS_COUNT,
             s.syncDayReminderStarts);
@@ -594,6 +596,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
 
   doc["homeCarouselSource"] = s.homeCarouselSource;
   doc["displayDay"] = s.displayDay;
+  doc["syncDayWifiChoice"] = s.syncDayWifiChoice;
   doc["syncDayReminderStarts"] = s.syncDayReminderStarts;
   doc["dateFormat"] = s.dateFormat;
   doc["dailyGoalTarget"] = s.dailyGoalTarget;
@@ -773,6 +776,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["homeCarouselSource"] | s.homeCarouselSource, S::HOME_CAROUSEL_SOURCE_COUNT, s.homeCarouselSource);
   s.displayDay = clamp(doc["displayDay"] | s.displayDay, static_cast<uint8_t>(2), s.displayDay);
   s.autoSyncDay = clamp(doc["autoSyncDay"] | s.autoSyncDay, static_cast<uint8_t>(2), s.autoSyncDay);
+  s.syncDayWifiChoice =
+      clamp(doc["syncDayWifiChoice"] | s.syncDayWifiChoice, S::SYNC_DAY_WIFI_CHOICE_COUNT, s.syncDayWifiChoice);
   s.syncDayReminderStarts =
       clamp(doc["syncDayReminderStarts"] | s.syncDayReminderStarts, S::SYNC_DAY_REMINDER_STARTS_COUNT,
             s.syncDayReminderStarts);
