@@ -179,10 +179,11 @@ void WifiSelectionActivity::processWifiScanResults() {
 
   WiFi.scanDelete();
 
-  // Auto-connect to the best saved-password network if one is in range.
+  // Auto-connect to the best saved-password network if one is in range and the
+  // parent flow explicitly allows automatic selection.
   // Networks are already sorted: saved-password first, then by RSSI descending,
   // so networks[0] is always the best candidate.
-  if (!networks.empty() && networks[0].hasSavedPassword) {
+  if (allowAutoConnect && !networks.empty() && networks[0].hasSavedPassword) {
     LOG_DBG("WIFI", "Found saved network in range: %s (RSSI: %d) - auto-connecting", networks[0].ssid.c_str(),
             networks[0].rssi);
     selectedNetworkIndex = 0;
