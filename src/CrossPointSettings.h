@@ -314,6 +314,8 @@ class CrossPointSettings {
   uint8_t fileTransferShortcutOrder = 15;
   uint8_t sleepShortcut = SHORTCUT_APPS;
   uint8_t sleepShortcutOrder = 16;
+  uint8_t opdsBrowserShortcut = SHORTCUT_HOME;
+  uint8_t opdsBrowserShortcutOrder = 17;
   uint8_t browseFilesShortcutVisible = 1;
   uint8_t statsShortcutVisible = 1;
   uint8_t syncDayShortcutVisible = 1;
@@ -330,6 +332,7 @@ class CrossPointSettings {
   uint8_t flashcardsShortcutVisible = 1;
   uint8_t fileTransferShortcutVisible = 1;
   uint8_t sleepShortcutVisible = 1;
+  uint8_t opdsBrowserShortcutVisible = 1;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)

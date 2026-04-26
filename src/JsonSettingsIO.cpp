@@ -455,6 +455,10 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   s.sleepShortcut = clamp(doc["sleepShortcut"] | s.sleepShortcut, shortcutLocationCount, s.sleepShortcut);
   s.sleepShortcutOrder =
       clamp(doc["sleepShortcutOrder"] | s.sleepShortcutOrder, shortcutOrderCount, s.sleepShortcutOrder);
+  s.opdsBrowserShortcut =
+      clamp(doc["opdsBrowserShortcut"] | s.opdsBrowserShortcut, shortcutLocationCount, s.opdsBrowserShortcut);
+  s.opdsBrowserShortcutOrder = clamp(doc["opdsBrowserShortcutOrder"] | s.opdsBrowserShortcutOrder,
+                                     shortcutOrderCount, s.opdsBrowserShortcutOrder);
 
   s.browseFilesShortcutVisible =
       clamp(doc["browseFilesShortcutVisible"] | s.browseFilesShortcutVisible, static_cast<uint8_t>(2),
@@ -500,6 +504,8 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
             s.fileTransferShortcutVisible);
   s.sleepShortcutVisible =
       clamp(doc["sleepShortcutVisible"] | s.sleepShortcutVisible, static_cast<uint8_t>(2), s.sleepShortcutVisible);
+  s.opdsBrowserShortcutVisible = clamp(doc["opdsBrowserShortcutVisible"] | s.opdsBrowserShortcutVisible,
+                                       static_cast<uint8_t>(2), s.opdsBrowserShortcutVisible);
 
   normalizeShortcutOrderSettings(s);
   CrossPointSettings::validateFrontButtonMapping(s);
@@ -663,6 +669,8 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["fileTransferShortcutOrder"] = s.fileTransferShortcutOrder;
   doc["sleepShortcut"] = s.sleepShortcut;
   doc["sleepShortcutOrder"] = s.sleepShortcutOrder;
+  doc["opdsBrowserShortcut"] = s.opdsBrowserShortcut;
+  doc["opdsBrowserShortcutOrder"] = s.opdsBrowserShortcutOrder;
   doc["browseFilesShortcutVisible"] = s.browseFilesShortcutVisible;
   doc["statsShortcutVisible"] = s.statsShortcutVisible;
   doc["syncDayShortcutVisible"] = s.syncDayShortcutVisible;
@@ -679,6 +687,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["flashcardsShortcutVisible"] = s.flashcardsShortcutVisible;
   doc["fileTransferShortcutVisible"] = s.fileTransferShortcutVisible;
   doc["sleepShortcutVisible"] = s.sleepShortcutVisible;
+  doc["opdsBrowserShortcutVisible"] = s.opdsBrowserShortcutVisible;
 
   return saveJsonDocumentToFile("CPS", path, doc);
 }
@@ -873,6 +882,10 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.sleepShortcut = clamp(doc["sleepShortcut"] | s.sleepShortcut, shortcutLocationCount, s.sleepShortcut);
   s.sleepShortcutOrder =
       clamp(doc["sleepShortcutOrder"] | s.sleepShortcutOrder, shortcutOrderCount, s.sleepShortcutOrder);
+  s.opdsBrowserShortcut =
+      clamp(doc["opdsBrowserShortcut"] | s.opdsBrowserShortcut, shortcutLocationCount, s.opdsBrowserShortcut);
+  s.opdsBrowserShortcutOrder = clamp(doc["opdsBrowserShortcutOrder"] | s.opdsBrowserShortcutOrder,
+                                     shortcutOrderCount, s.opdsBrowserShortcutOrder);
 
   s.browseFilesShortcutVisible =
       clamp(doc["browseFilesShortcutVisible"] | s.browseFilesShortcutVisible, static_cast<uint8_t>(2),
@@ -918,6 +931,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
             s.fileTransferShortcutVisible);
   s.sleepShortcutVisible =
       clamp(doc["sleepShortcutVisible"] | s.sleepShortcutVisible, static_cast<uint8_t>(2), s.sleepShortcutVisible);
+  s.opdsBrowserShortcutVisible = clamp(doc["opdsBrowserShortcutVisible"] | s.opdsBrowserShortcutVisible,
+                                       static_cast<uint8_t>(2), s.opdsBrowserShortcutVisible);
 
   normalizeShortcutOrderSettings(s);
   CrossPointSettings::validateFrontButtonMapping(s);

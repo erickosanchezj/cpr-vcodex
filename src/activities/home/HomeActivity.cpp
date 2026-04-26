@@ -46,7 +46,6 @@ constexpr int HOME_SHORTCUT_PAGE_SIZE = 4;
 struct HomeShortcutEntry {
   const ShortcutDefinition* definition = nullptr;
   bool isAppsHub = false;
-  bool isOpds = false;
 };
 
 std::string getRecentBookConfirmationLabel(const RecentBook& book) {
@@ -70,9 +69,12 @@ RecentBook toRecentBook(const FavoriteBook& book) {
 
 std::vector<HomeShortcutEntry> getHomeShortcutEntries(const bool hasOpdsServers) {
   std::vector<HomeShortcutEntry> entries;
-  entries.push_back(HomeShortcutEntry{nullptr, true, false});
+  entries.push_back(HomeShortcutEntry{nullptr, true});
 
   for (const auto& definition : getShortcutDefinitions()) {
+    if (definition.id == ShortcutId::OpdsBrowser && !hasOpdsServers) {
+      continue;
+    }
     const auto location = static_cast<CrossPointSettings::SHORTCUT_LOCATION>(SETTINGS.*(definition.locationPtr));
     if (location == CrossPointSettings::SHORTCUT_HOME && getShortcutVisibility(definition)) {
       entries.push_back(HomeShortcutEntry{&definition});
@@ -85,19 +87,12 @@ std::vector<HomeShortcutEntry> getHomeShortcutEntries(const bool hasOpdsServers)
     return lhsOrder < rhsOrder;
   });
 
-  if (hasOpdsServers) {
-    entries.push_back(HomeShortcutEntry{nullptr, false, true});
-  }
-
   return entries;
 }
 
 std::string getHomeShortcutTitle(const HomeShortcutEntry& entry) {
   if (entry.isAppsHub) {
     return tr(STR_APPS);
-  }
-  if (entry.isOpds) {
-    return tr(STR_OPDS_BROWSER);
   }
   if (!entry.definition) {
     return "";
@@ -112,9 +107,6 @@ std::string getHomeShortcutSubtitle(const HomeShortcutEntry& entry) {
 UIIcon getHomeShortcutIcon(const HomeShortcutEntry& entry) {
   if (entry.isAppsHub) {
     return UIIcon::Book;
-  }
-  if (entry.isOpds) {
-    return UIIcon::Library;
   }
   return entry.definition ? entry.definition->icon : UIIcon::Folder;
 }
@@ -387,8 +379,6 @@ void HomeActivity::loop() {
     const auto& selectedEntry = homeEntries[homeIndex];
     if (selectedEntry.isAppsHub) {
       onAppsOpen();
-    } else if (selectedEntry.isOpds) {
-      onOpdsBrowserOpen();
     } else if (selectedEntry.definition) {
       switch (selectedEntry.definition->id) {
         case ShortcutId::BrowseFiles:
@@ -445,6 +435,9 @@ void HomeActivity::loop() {
         case ShortcutId::Sleep:
           startActivityForResult(std::make_unique<SleepAppActivity>(renderer, mappedInput),
                                  [this](const ActivityResult&) { requestUpdate(); });
+          break;
+        case ShortcutId::OpdsBrowser:
+          onOpdsBrowserOpen();
           break;
       }
     }
