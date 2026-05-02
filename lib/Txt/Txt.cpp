@@ -40,13 +40,19 @@ std::string Txt::getTitle() const {
   size_t lastSlash = filepath.find_last_of('/');
   std::string filename = (lastSlash != std::string::npos) ? filepath.substr(lastSlash + 1) : filepath;
 
-  // Remove .txt extension
+  // Remove plain text / Markdown extension
   if (FsHelpers::hasTxtExtension(filename)) {
     filename = filename.substr(0, filename.length() - 4);
+  } else if (FsHelpers::checkFileExtension(filename, ".markdown")) {
+    filename = filename.substr(0, filename.length() - 9);
+  } else if (FsHelpers::checkFileExtension(filename, ".md")) {
+    filename = filename.substr(0, filename.length() - 3);
   }
 
   return filename;
 }
+
+bool Txt::isMarkdown() const { return FsHelpers::hasMarkdownExtension(filepath); }
 
 void Txt::setupCacheDir() const {
   if (!Storage.exists(cacheBasePath.c_str())) {

@@ -6,10 +6,12 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
 
+#include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
@@ -33,6 +35,7 @@
 #include "components/icons/transfer.h"
 #include "components/icons/wifi.h"
 #include "fontIds.h"
+#include "util/ReadingStatsAnalytics.h"
 
 // Internal constants
 namespace {
@@ -45,6 +48,8 @@ constexpr int maxListValueWidth = 200;
 constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 24;
 constexpr int mainMenuColumns = 2;
+constexpr int progressRowGap = 8;
+constexpr int progressBarHeight = 8;
 int coverWidth = 0;
 
 void drawLyraBatteryIcon(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight,
@@ -157,6 +162,23 @@ void drawCompletedListBadge(const GfxRenderer& renderer, const int x, const int 
 
   renderer.drawLine(leftX, leftY, midX, midY, strokeWidth, false);
   renderer.drawLine(midX, midY, rightX, rightY, strokeWidth, false);
+}
+
+const ReadingBookStats* getRecentBookStats(const RecentBook& recentBook) {
+  if (!recentBook.bookId.empty()) {
+    if (const ReadingBookStats* stats = READING_STATS.findBook(recentBook.bookId)) {
+      return stats;
+    }
+  }
+  return READING_STATS.findBook(recentBook.path);
+}
+
+void drawLyraProgressBar(GfxRenderer& renderer, const Rect& rect, const uint8_t progressPercent) {
+  renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
+  const int fillWidth = std::max(0, (rect.width - 4) * std::min<int>(progressPercent, 100) / 100);
+  if (fillWidth > 0) {
+    renderer.fillRect(rect.x + 2, rect.y + 2, fillWidth, std::max(0, rect.height - 4), true);
+  }
 }
 }  // namespace
 
@@ -555,23 +577,51 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
                                hPaddingInSelection, cornerRadius, false, false, true, true, Color::LightGray);
     }
 
+    const ReadingBookStats* stats = getRecentBookStats(book);
+    const uint8_t progressPercent =
+        stats != nullptr ? (stats->completed ? 100 : std::min<uint8_t>(stats->lastProgressPercent, 100)) : 0;
+    const std::string progressText = std::to_string(progressPercent) + "%";
+    const std::string statsText =
+        stats != nullptr
+            ? ReadingStatsAnalytics::formatDurationHm(stats->totalReadingMs) + " | " + std::to_string(stats->sessions) + "x"
+            : std::string("0m | 0x");
+
     auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
 
     auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
     const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
     const int authorHeight = book.author.empty() ? 0 : (renderer.getLineHeight(UI_10_FONT_ID) * 3 / 2);
-    const int totalBlockHeight = titleBlockHeight + authorHeight;
-    int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
+    const int smallLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+    const int progressRowHeight = std::max(smallLineHeight, progressBarHeight);
+    const int statsLineHeight = smallLineHeight;
+    const int progressTopGap = 14;
+    const int statsTopGap = 7;
+    const int totalBlockHeight =
+        titleBlockHeight + authorHeight + progressTopGap + progressRowHeight + statsTopGap + statsLineHeight;
+    int currentY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {
-      renderer.drawText(UI_12_FONT_ID, textX, titleY, line.c_str(), true, EpdFontFamily::BOLD);
-      titleY += titleLineHeight;
+      renderer.drawText(UI_12_FONT_ID, textX, currentY, line.c_str(), true, EpdFontFamily::BOLD);
+      currentY += titleLineHeight;
     }
     if (!book.author.empty()) {
-      titleY += renderer.getLineHeight(UI_10_FONT_ID) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, titleY, author.c_str(), true);
+      currentY += renderer.getLineHeight(UI_10_FONT_ID) / 2;
+      renderer.drawText(UI_10_FONT_ID, textX, currentY, author.c_str(), true);
+      currentY += renderer.getLineHeight(UI_10_FONT_ID);
     }
+
+    currentY += progressTopGap;
+    const int progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressText.c_str(), EpdFontFamily::BOLD);
+    const int progressBarWidth = std::max(24, textWidth - progressTextWidth - progressRowGap);
+    const int progressBarY = currentY + std::max(0, (smallLineHeight - progressBarHeight) / 2);
+    drawLyraProgressBar(renderer, Rect{textX, progressBarY, progressBarWidth, progressBarHeight}, progressPercent);
+    renderer.drawText(SMALL_FONT_ID, textX + progressBarWidth + progressRowGap, currentY, progressText.c_str(), true,
+                      EpdFontFamily::BOLD);
+
+    currentY += progressRowHeight + statsTopGap;
+    auto statsLine = renderer.truncatedText(SMALL_FONT_ID, statsText.c_str(), textWidth);
+    renderer.drawText(SMALL_FONT_ID, textX, currentY, statsLine.c_str(), true);
   } else {
     drawEmptyRecents(renderer, rect);
   }

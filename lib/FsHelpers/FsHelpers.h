@@ -52,7 +52,7 @@ inline bool hasTxtExtension(const String& fileName) {
   return hasTxtExtension(std::string_view{fileName.c_str(), fileName.length()});
 }
 
-// Check for .md extension (case-insensitive)
+// Check for .md or .markdown extension (case-insensitive)
 bool hasMarkdownExtension(std::string_view fileName);
 
 std::string extractFolderPath(const std::string& filePath);

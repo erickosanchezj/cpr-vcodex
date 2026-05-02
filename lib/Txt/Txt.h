@@ -20,6 +20,7 @@ class Txt {
   [[nodiscard]] const std::string& getCachePath() const { return cachePath; }
   [[nodiscard]] std::string getTitle() const;
   [[nodiscard]] size_t getFileSize() const { return fileSize; }
+  [[nodiscard]] bool isMarkdown() const;
 
   void setupCacheDir() const;
 
