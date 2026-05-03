@@ -42,9 +42,9 @@ void syncTimeWithNTP() {
     LOG_DBG("KOSync", "NTP sync timeout, using fallback");
   }
 
-  const uint32_t authoritativeTimestamp = TimeUtils::getAuthoritativeTimestamp();
-  if (TimeUtils::isClockValid(authoritativeTimestamp)) {
-    APP_STATE.registerValidTimeSync(authoritativeTimestamp);
+  const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
+  if (currentValidTimestamp > 0) {
+    APP_STATE.registerValidTimeSync(currentValidTimestamp);
     APP_STATE.saveToFile();
   }
 }

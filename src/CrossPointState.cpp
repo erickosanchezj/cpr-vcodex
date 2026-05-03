@@ -68,10 +68,7 @@ uint16_t CrossPointState::getMostRecentSleepIndex() const {
 
 bool CrossPointState::saveToFile() {
   Storage.mkdir("/.crosspoint");
-  const uint32_t authoritativeTimestamp = TimeUtils::getAuthoritativeTimestamp();
-  if (TimeUtils::isClockValid(authoritativeTimestamp)) {
-    lastKnownValidTimestamp = authoritativeTimestamp;
-  }
+  lastKnownValidTimestamp = std::max(lastKnownValidTimestamp, TimeUtils::getCurrentValidTimestamp());
   return JsonSettingsIO::saveState(*this, STATE_FILE_JSON);
 }
 

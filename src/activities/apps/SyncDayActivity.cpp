@@ -266,11 +266,12 @@ void SyncDayActivity::syncTime() {
   lastSyncFailed = false;
   requestUpdate(true);
 
+  const bool hadValidTimeBefore = TimeUtils::isClockValid();
   const bool ntpSuccess = TimeUtils::syncTimeWithNtp();
-  const uint32_t authoritativeTimestamp = TimeUtils::getAuthoritativeTimestamp();
-  const bool effectiveSuccess = ntpSuccess && TimeUtils::isClockValid(authoritativeTimestamp);
-  if (effectiveSuccess) {
-    APP_STATE.registerValidTimeSync(authoritativeTimestamp);
+  const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
+  const bool effectiveSuccess = ntpSuccess || (!hadValidTimeBefore && currentValidTimestamp > 0);
+  if (currentValidTimestamp > 0) {
+    APP_STATE.registerValidTimeSync(currentValidTimestamp);
     APP_STATE.saveToFile();
   }
 

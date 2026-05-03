@@ -48,10 +48,8 @@ void ManualDateActivity::onEnter() {
   month = 6;
   day = 15;
 
-  uint32_t referenceTimestamp = TimeUtils::getAuthoritativeTimestamp();
-  if (!TimeUtils::isClockValid(referenceTimestamp) && TimeUtils::isClockValid(APP_STATE.lastKnownValidTimestamp)) {
-    referenceTimestamp = APP_STATE.lastKnownValidTimestamp;
-  }
+  const auto displayDateInfo = HeaderDateUtils::getDisplayDateInfo();
+  const uint32_t referenceTimestamp = displayDateInfo.timestamp;
 
   if (TimeUtils::isClockValid(referenceTimestamp)) {
     time_t currentTime = static_cast<time_t>(referenceTimestamp);
