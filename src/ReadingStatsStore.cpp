@@ -373,6 +373,10 @@ uint32_t ReadingStatsStore::getReferenceTimestamp(const uint32_t preferredTimest
     return preferredTimestamp;
   }
 
+  if (isClockValid(APP_STATE.lastKnownValidTimestamp)) {
+    return APP_STATE.lastKnownValidTimestamp;
+  }
+
   const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
   if (isClockValid(latestKnownTimestamp)) {
     return latestKnownTimestamp;
@@ -905,7 +909,7 @@ bool ReadingStatsStore::importFromFile(const std::string& path) {
   removeIgnoredBooks();
   rebuildAggregatedReadingDays();
   const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
-  if (isClockValid(latestKnownTimestamp) && latestKnownTimestamp > APP_STATE.lastKnownValidTimestamp) {
+  if (!isClockValid(APP_STATE.lastKnownValidTimestamp) && isClockValid(latestKnownTimestamp)) {
     APP_STATE.lastKnownValidTimestamp = latestKnownTimestamp;
     APP_STATE.saveToFile();
   }
@@ -943,7 +947,7 @@ bool ReadingStatsStore::loadFromFile() {
     removeIgnoredBooks();
     rebuildAggregatedReadingDays();
     const uint32_t latestKnownTimestamp = getLatestKnownTimestamp();
-    if (isClockValid(latestKnownTimestamp) && latestKnownTimestamp > APP_STATE.lastKnownValidTimestamp) {
+    if (!isClockValid(APP_STATE.lastKnownValidTimestamp) && isClockValid(latestKnownTimestamp)) {
       APP_STATE.lastKnownValidTimestamp = latestKnownTimestamp;
     }
     activeSession = {};

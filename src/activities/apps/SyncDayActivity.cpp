@@ -270,7 +270,7 @@ void SyncDayActivity::syncTime() {
   const bool ntpSuccess = TimeUtils::syncTimeWithNtp();
   const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
   const bool effectiveSuccess = ntpSuccess || (!hadValidTimeBefore && currentValidTimestamp > 0);
-  if (currentValidTimestamp > 0) {
+  if (effectiveSuccess && currentValidTimestamp > 0) {
     APP_STATE.registerValidTimeSync(currentValidTimestamp);
     APP_STATE.saveToFile();
   }

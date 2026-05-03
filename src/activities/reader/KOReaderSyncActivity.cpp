@@ -36,14 +36,15 @@ void trimMemoryBeforeTls(const GfxRenderer& renderer) {
 }
 
 void syncTimeWithNTP() {
-  if (TimeUtils::syncTimeWithNtp(5000)) {
+  const bool ntpSuccess = TimeUtils::syncTimeWithNtp(5000);
+  if (ntpSuccess) {
     LOG_DBG("KOSync", "NTP time synced");
   } else {
     LOG_DBG("KOSync", "NTP sync timeout, using fallback");
   }
 
   const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
-  if (currentValidTimestamp > 0) {
+  if (ntpSuccess && currentValidTimestamp > 0) {
     APP_STATE.registerValidTimeSync(currentValidTimestamp);
     APP_STATE.saveToFile();
   }
