@@ -48,7 +48,7 @@ void ManualDateActivity::onEnter() {
   month = 6;
   day = 15;
 
-  uint32_t referenceTimestamp = TimeUtils::getCurrentValidTimestamp();
+  uint32_t referenceTimestamp = TimeUtils::getAuthoritativeTimestamp();
   if (!TimeUtils::isClockValid(referenceTimestamp) && TimeUtils::isClockValid(APP_STATE.lastKnownValidTimestamp)) {
     referenceTimestamp = APP_STATE.lastKnownValidTimestamp;
   }

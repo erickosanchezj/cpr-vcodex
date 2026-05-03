@@ -68,7 +68,10 @@ uint16_t CrossPointState::getMostRecentSleepIndex() const {
 
 bool CrossPointState::saveToFile() {
   Storage.mkdir("/.crosspoint");
-  lastKnownValidTimestamp = std::max(lastKnownValidTimestamp, TimeUtils::getCurrentValidTimestamp());
+  const uint32_t authoritativeTimestamp = TimeUtils::getAuthoritativeTimestamp();
+  if (TimeUtils::isClockValid(authoritativeTimestamp)) {
+    lastKnownValidTimestamp = authoritativeTimestamp;
+  }
   return JsonSettingsIO::saveState(*this, STATE_FILE_JSON);
 }
 
@@ -121,7 +124,7 @@ void CrossPointState::recordUsefulStart(const uint8_t reminderThreshold) {
 
 void CrossPointState::registerValidTimeSync(const uint32_t validTimestamp) {
   if (validTimestamp > 0) {
-    lastKnownValidTimestamp = std::max(lastKnownValidTimestamp, validTimestamp);
+    lastKnownValidTimestamp = validTimestamp;
     syncDayReminderStartCount = 0;
     syncDayReminderLatched = false;
   }

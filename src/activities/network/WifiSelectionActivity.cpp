@@ -300,9 +300,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
 
     LOG_DBG("WIFI", "Auto-syncing date/time after Wi-Fi connection");
     TimeUtils::syncTimeWithNtp();
-    const uint32_t currentValidTimestamp = TimeUtils::getCurrentValidTimestamp();
-    if (currentValidTimestamp > 0) {
-      APP_STATE.registerValidTimeSync(currentValidTimestamp);
+    const uint32_t authoritativeTimestamp = TimeUtils::getAuthoritativeTimestamp();
+    if (TimeUtils::isClockValid(authoritativeTimestamp)) {
+      APP_STATE.registerValidTimeSync(authoritativeTimestamp);
       APP_STATE.saveToFile();
     }
 
