@@ -1,8 +1,8 @@
 {
   "name": "CPR-vCodex",
-  "version": "1.2.0.37-cpr-vcodex",
+  "version": "1.2.0.38-cpr-vcodex",
   "firmwareUrl": "firmware/firmware.bin",
-  "downloadUrl": "https://github.com/franssjz/cpr-vcodex/releases/download/1.2.0.37-cpr-vcodex/1.2.0.37-cpr-vcodex.bin",
+  "downloadUrl": "https://github.com/franssjz/cpr-vcodex/releases/download/1.2.0.38-cpr-vcodex/1.2.0.38-cpr-vcodex.bin",
   "new_install_prompt_erase": false,
   "builds": [
     {

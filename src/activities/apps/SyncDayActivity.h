@@ -13,6 +13,7 @@ class SyncDayActivity final : public Activity {
   int selectedIndex = 0;
 
   void openWifiSelection(bool allowAutoConnect);
+  void openManualDateSelection();
   void openTimeZoneSelection();
   void syncTime();
   bool isWifiConnected() const;
