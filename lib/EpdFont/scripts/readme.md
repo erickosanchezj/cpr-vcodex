@@ -1,8 +1,8 @@
 # Symbol-added SD fonts
 
 These host-side tools help build `.cpfont` SD fonts with broader symbol coverage
-for books that use technical or fiction symbols, such as `ℓ`, `λ`, arrows, math
-operators, number forms, and dingbats.
+for books that use technical or fiction symbols, such as `U+2113`, `U+03BB`,
+arrows, math operators, number forms, and dingbats.
 
 ## 1. Check the source TTF/OTF
 
@@ -13,6 +13,16 @@ glyphs that are missing from the original font.
 python lib\EpdFont\scripts\check-ttf-coverage.py D:\U\ERICK\DE\Bookerly-Regular.ttf
 ```
 
+For a full multi-style font family, check every source style together:
+
+```powershell
+python lib\EpdFont\scripts\check-ttf-coverage.py `
+  --regular D:\U\ERICK\DE\Bookerly-Regular.ttf `
+  --bold D:\U\ERICK\DE\Bookerly-Bold.ttf `
+  --italic D:\U\ERICK\DE\Bookerly-Italic.ttf `
+  --bold-italic D:\U\ERICK\DE\Bookerly-BoldItalic.ttf
+```
+
 Useful output:
 
 - `Codepoint checks` tells you whether specific symbols such as `U+2113` and
@@ -21,26 +31,47 @@ Useful output:
 - `Technical-reading interval add-on` prints an interval string that can be
   appended to `fontconvert_sdcard.py --intervals`.
 
-Run the same check for bold and italic TTFs if the final `.cpfont` will bundle
-multiple styles. A symbol has to exist in each source style if you want it
-available in each rendered style.
+The multi-style summary reports whether each requested symbol exists in regular,
+bold, italic, and bold-italic. A symbol has to exist in each source style if you
+want it available in each rendered style.
 
 ## 2. Generate symbol-added `.cpfont` files
 
 Use `fontconvert_sdcard.py` with the normal `reading` preset plus extra ranges
 that the TTF coverage check showed are useful.
 
-Example for three Bookerly styles:
+Example for four Bookerly styles:
 
 ```powershell
+$OutputDir = "D:\U\ERICK\DO\XTEINK4\.fonts\BookerlyV2"
+$FontName = Split-Path -Leaf $OutputDir
+
+Write-Host "Output folder: $OutputDir"
+Write-Host "Font family name: $FontName"
+$Override = Read-Host "Press Enter to use this name, or type a different font family name"
+if ($Override.Trim()) {
+  $FontName = $Override.Trim()
+  Write-Host "Using font family name: $FontName"
+}
+
 python lib\EpdFont\scripts\fontconvert_sdcard.py `
   --regular D:\U\ERICK\DE\Bookerly-Regular.ttf `
   --bold D:\U\ERICK\DE\Bookerly-Bold.ttf `
   --italic D:\U\ERICK\DE\Bookerly-Italic.ttf `
+  --bold-italic D:\U\ERICK\DE\Bookerly-BoldItalic.ttf `
+  --name $FontName `
   --sizes 12,14,16,18 `
   --intervals "reading,(0x2100-0x214F),(0x2150-0x218F),(0x2190-0x21FF),(0x2200-0x22FF),(0x2300-0x23FF),(0x2460-0x24FF),(0x25A0-0x25FF),(0x2600-0x26FF),(0x2700-0x27BF),(0xFB00-0xFB4F)" `
-  --output-dir D:\U\ERICK\DO\XTEINK4\.fonts\BookerlyV2
+  --output-dir $OutputDir
 ```
+
+If you only have three source files, omit `--bold-italic`. The generated
+`.cpfont` will only bundle the styles you provide.
+
+The explicit `--name $FontName` keeps the generated files aligned with the SD
+font folder name. For example, an output folder named `BookerlyV2` creates files
+like `BookerlyV2_12.cpfont`, which matches the reader's expected
+`/<root>/<Family>/<Family>_<size>.cpfont` layout.
 
 Recommended fiction/technical add-on ranges:
 

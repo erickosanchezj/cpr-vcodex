@@ -150,12 +150,75 @@ def print_interval_suggestions(cmap: dict[int, str], threshold: float) -> None:
     print(f'  --intervals "reading,{intervals}"')
 
 
+def print_font_report(label: str, path: Path, codepoints: list[int], threshold: float, no_blocks: bool) -> dict[int, str]:
+    cmap = load_cmap(path)
+    print(f"\n== {label} ==")
+    print(f"Font: {path}")
+    print(f"Mapped Unicode codepoints: {len(cmap)}")
+    print_codepoint_checks(cmap, codepoints)
+
+    if not no_blocks:
+        print_interval_suggestions(cmap, threshold)
+
+    return cmap
+
+
+def collect_style_fonts(args: argparse.Namespace) -> list[tuple[str, Path]]:
+    style_fonts: list[tuple[str, Path]] = []
+    if args.regular:
+        style_fonts.append(("regular", args.regular))
+    if args.bold:
+        style_fonts.append(("bold", args.bold))
+    if args.italic:
+        style_fonts.append(("italic", args.italic))
+    if args.bold_italic:
+        style_fonts.append(("bold-italic", args.bold_italic))
+
+    if args.font:
+        if style_fonts:
+            raise SystemExit("Error: use either positional font paths or --regular/--bold/--italic/--bold-italic, not both")
+        if len(args.font) == 1:
+            return [("font", args.font[0])]
+        return [(f"font-{index + 1}", path) for index, path in enumerate(args.font)]
+
+    if not style_fonts:
+        raise SystemExit("Error: provide at least one font path")
+
+    return style_fonts
+
+
+def print_multi_style_summary(cmaps_by_style: list[tuple[str, dict[int, str]]], codepoints: list[int]) -> None:
+    if len(cmaps_by_style) <= 1:
+        return
+
+    print("\nMulti-style codepoint summary:")
+    for cp in codepoints:
+        missing = [label for label, cmap in cmaps_by_style if cp not in cmap]
+        if missing:
+            print(f"  MISSING {cp_label(cp)} from {', '.join(missing)}")
+        else:
+            print(f"  OK      {cp_label(cp)}")
+
+
+def cp_label(cp: int) -> str:
+    char = chr(cp)
+    display = f"\u25CC{char}" if unicodedata.combining(char) else char
+    label = DEFAULT_CODEPOINTS.get(cp, unicodedata.name(char, "UNKNOWN"))
+    return f"U+{cp:04X} {display} {label}"
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
     parser = argparse.ArgumentParser(description="Check Unicode coverage in a TTF/OTF before cpfont conversion.")
-    parser.add_argument("font", type=Path, help="Path to a .ttf or .otf font file")
+    parser.add_argument("font", nargs="*", type=Path, help="Path to one or more .ttf/.otf font files")
+    parser.add_argument("--regular", type=Path, help="Regular style .ttf/.otf")
+    parser.add_argument("--bold", type=Path, help="Bold style .ttf/.otf")
+    parser.add_argument("--italic", type=Path, help="Italic style .ttf/.otf")
+    parser.add_argument(
+        "--bold-italic", "--bolditalic", dest="bold_italic", type=Path, help="Bold italic style .ttf/.otf"
+    )
     parser.add_argument(
         "--codepoint",
         action="append",
@@ -171,17 +234,17 @@ def main() -> int:
     parser.add_argument("--no-blocks", action="store_true", help="Only print codepoint checks")
     args = parser.parse_args()
 
-    cmap = load_cmap(args.font)
-    print(f"Font: {args.font}")
-    print(f"Mapped Unicode codepoints: {len(cmap)}")
-
     codepoints = list(DEFAULT_CODEPOINTS)
     codepoints.extend(parse_codepoint(cp) for cp in args.codepoint)
     codepoints = sorted(set(codepoints))
-    print_codepoint_checks(cmap, codepoints)
 
-    if not args.no_blocks:
-        print_interval_suggestions(cmap, args.suggest_threshold)
+    style_fonts = collect_style_fonts(args)
+    cmaps_by_style = []
+    for label, path in style_fonts:
+        cmap = print_font_report(label, path, codepoints, args.suggest_threshold, args.no_blocks)
+        cmaps_by_style.append((label, cmap))
+
+    print_multi_style_summary(cmaps_by_style, codepoints)
 
     return 0
 

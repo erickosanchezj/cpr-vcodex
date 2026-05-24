@@ -868,7 +868,7 @@ def main():
     parser.add_argument("--sizes", dest="sizes",
                         help="Comma-separated sizes (e.g., '12,14,16,18').")
     parser.add_argument("--style", dest="style", default="regular",
-                        choices=["regular", "bold", "italic", "bolditalic"],
+                        choices=["regular", "bold", "italic", "bolditalic", "bold-italic"],
                         help="Font style for single-style mode (default: regular).")
     parser.add_argument("--name", dest="name",
                         help="Font family name for output filenames (default: derived from font filename).")
@@ -890,7 +890,7 @@ def main():
                         help="Font file for bold style.")
     parser.add_argument("--italic", dest="font_italic",
                         help="Font file for italic style.")
-    parser.add_argument("--bolditalic", dest="font_bolditalic",
+    parser.add_argument("--bolditalic", "--bold-italic", dest="font_bolditalic",
                         help="Font file for bold-italic style.")
 
     args = parser.parse_args()
@@ -962,7 +962,7 @@ def main():
 
     if not is_multistyle:
         # Single font file provided: wrap as a single-style v4 font
-        style_map = {"regular": 0, "bold": 1, "italic": 2, "bolditalic": 3}
+        style_map = {"regular": 0, "bold": 1, "italic": 2, "bolditalic": 3, "bold-italic": 3}
         style_fonts[style_map[args.style]] = fontfile
 
     # Always generate v4 format
