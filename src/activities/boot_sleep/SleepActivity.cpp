@@ -42,7 +42,7 @@ bool usesCustomSleepImages() {
 
 void displaySleepBuffer(const GfxRenderer& renderer) {
   renderer.clearNextRefreshOverride();
-  renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 int percentOf(const uint64_t value, const uint64_t target) {
@@ -754,7 +754,6 @@ bool SleepActivity::renderPngSleepScreen(const std::string& sourcePath) const {
   }
 
   displaySleepBuffer(renderer);
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   return true;
 }
 
