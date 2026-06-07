@@ -387,7 +387,7 @@ void EpubReaderActivity::loop() {
     ReaderUtils::requestReaderUiTransitionRefresh(renderer);
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty(), !bookmarkStore.isEmpty()),
+                               SETTINGS.orientation, !currentPageFootnotes.empty()),
                            [this](const ActivityResult& result) {
                              READING_STATS.resumeSession();
                              // Always apply orientation change even if the menu was cancelled
@@ -514,6 +514,38 @@ void EpubReaderActivity::loop() {
 void EpubReaderActivity::requestCurrentPageFullRefresh() {
   READING_STATS.noteActivity();
   pendingForceFullRefresh = true;
+  requestUpdate();
+}
+
+void EpubReaderActivity::saveCurrentPageBookmark() {
+  if (!section || section->currentPage < 0 || section->currentPage >= section->pageCount) {
+    requestUpdate();
+    return;
+  }
+
+  const uint16_t spineIndex = static_cast<uint16_t>(currentSpineIndex);
+  const uint16_t pageNumber = static_cast<uint16_t>(section->currentPage);
+  if (bookmarkStore.has(spineIndex, pageNumber)) {
+    GUI.drawPopup(renderer, tr(STR_BOOKMARK_ALREADY_SAVED));
+    renderer.displayBuffer();
+    delay(500);
+    requestUpdate();
+    return;
+  }
+
+  const std::string snippet = extractBookmarkSnippet(*section);
+  const bool addedBookmark = bookmarkStore.toggle(spineIndex, pageNumber, snippet);
+  bookmarkStore.save();
+  if (addedBookmark && epub && !READING_STATS.shouldIgnorePath(epub->getPath())) {
+    ACHIEVEMENTS.recordBookmarkAdded();
+  }
+
+  const bool showedAchievement = showPendingAchievementPopups(renderer);
+  if (!showedAchievement) {
+    GUI.drawPopup(renderer, tr(STR_BOOKMARK_ADDED));
+    renderer.displayBuffer();
+    delay(500);
+  }
   requestUpdate();
 }
 
@@ -714,7 +746,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                              });
       break;
     }
-    case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
+    case EpubReaderMenuActivity::MenuAction::VIEW_BOOKMARKS: {
       READING_STATS.noteActivity();
       startActivityForResult(std::make_unique<BookmarksActivity>(
                                  renderer, mappedInput, bookmarkStore.getAll(), epub, "",
@@ -738,7 +770,12 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                                    section.reset();
                                  }
                                }
-                             });
+      });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::SAVE_BOOKMARK: {
+      READING_STATS.noteActivity();
+      saveCurrentPageBookmark();
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_TO_PERCENT: {

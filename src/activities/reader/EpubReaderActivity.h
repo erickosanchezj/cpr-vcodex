@@ -86,6 +86,7 @@ class EpubReaderActivity final : public Activity {
   void applyReaderSettingsChanges(const ReaderSettingsSnapshot& before);
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
+  void saveCurrentPageBookmark();
   std::string moveCompletedBookIfEnabled();
   void exitReaderAfterOptionalCompletedMove();
   void markCurrentBookAsFinished();
