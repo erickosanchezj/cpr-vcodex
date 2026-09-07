@@ -22,3 +22,5 @@ build
 *.local*
 *.log
 /.codex-build/
+/fs_/
+/qa-artifacts/

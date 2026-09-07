@@ -1,5 +1,11 @@
 #include "TimeUtils.h"
 
+#ifdef SIMULATOR
+
+void TimeUtils::registerSdFatDateTimeCallback() {}
+
+#else
+
 #include "CrossPointState.h"
 
 #include <Arduino.h>
@@ -55,3 +61,5 @@ void sdFatDateTimeCallback(uint16_t* date, uint16_t* time, uint8_t* ms10) {
 }  // namespace
 
 void TimeUtils::registerSdFatDateTimeCallback() { FsDateTime::setCallback(sdFatDateTimeCallback); }
+
+#endif

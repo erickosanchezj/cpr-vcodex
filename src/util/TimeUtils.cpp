@@ -21,6 +21,10 @@ uint8_t configuredTimeZonePreset = UINT8_MAX;
 int lastBridgedRtcUtcHour = -1;
 
 bool writeRtcFromUtcEpoch(const uint32_t epochSeconds) {
+#ifdef SIMULATOR
+  (void)epochSeconds;
+  return false;
+#else
   if (!halClock.isAvailable()) {
     return false;
   }
@@ -28,6 +32,7 @@ bool writeRtcFromUtcEpoch(const uint32_t epochSeconds) {
   struct tm utc{};
   gmtime_r(&utcTime, &utc);
   return halClock.writeUtcTm(utc);
+#endif
 }
 
 bool isLeapYear(const int year) { return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0); }
@@ -313,6 +318,28 @@ std::string TimeUtils::formatMonthYear(const int year, const unsigned month) {
 bool TimeUtils::isHardwareRtcAutoDayClockActive() { return SETTINGS.isHardwareRtcAutoDayClockActive(); }
 
 bool TimeUtils::formatStatusBarClockTime(char* buf, const size_t bufSize, const bool use12Hour) {
+#ifdef SIMULATOR
+  if (bufSize < (use12Hour ? 9u : 6u)) {
+    return false;
+  }
+  configureTimezone();
+  const time_t now = time(nullptr);
+  struct tm localTime{};
+  if (localtime_r(&now, &localTime) == nullptr) {
+    return false;
+  }
+  if (use12Hour) {
+    const bool pm = localTime.tm_hour >= 12;
+    int hour12 = localTime.tm_hour % 12;
+    if (hour12 == 0) {
+      hour12 = 12;
+    }
+    snprintf(buf, bufSize, "%d:%02d %s", hour12, localTime.tm_min, pm ? "PM" : "AM");
+  } else {
+    snprintf(buf, bufSize, "%02d:%02d", localTime.tm_hour, localTime.tm_min);
+  }
+  return true;
+#else
   if (bufSize < (use12Hour ? 9u : 6u) || !halClock.isAvailable()) {
     return false;
   }
@@ -340,9 +367,14 @@ bool TimeUtils::formatStatusBarClockTime(char* buf, const size_t bufSize, const 
     snprintf(buf, bufSize, "%02d:%02d", localTime.tm_hour, localTime.tm_min);
   }
   return true;
+#endif
 }
 
 bool TimeUtils::applySystemClockFromRtc(const bool forceRefresh) {
+#ifdef SIMULATOR
+  (void)forceRefresh;
+  return false;
+#else
   if (!halClock.isAvailable() || !SETTINGS.clockHasBeenSynced) {
     return false;
   }
@@ -371,9 +403,13 @@ bool TimeUtils::applySystemClockFromRtc(const bool forceRefresh) {
   lastBridgedRtcUtcHour = utc.tm_hour;
   APP_STATE.registerValidTimeSync(static_cast<uint32_t>(epoch));
   return true;
+#endif
 }
 
 void TimeUtils::tickSystemClockFromRtc() {
+#ifdef SIMULATOR
+  return;
+#else
   if (!halClock.isAvailable() || !SETTINGS.clockHasBeenSynced) {
     return;
   }
@@ -392,4 +428,5 @@ void TimeUtils::tickSystemClockFromRtc() {
   if (!applySystemClockFromRtc(true)) {
     lastBridgedRtcUtcHour = observedHour;
   }
+#endif
 }

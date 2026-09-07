@@ -218,17 +218,27 @@ void WifiSelectionActivity::processWifiScanResults() {
       network.rssi = rssi;
       network.isEncrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
       network.hasSavedPassword = WIFI_STORE.hasSavedCredential(network.ssid);
+#ifdef SIMULATOR
+      network.channel = 0;
+      network.hasBssid = false;
+#else
       network.channel = WiFi.channel(i);
       WiFi.BSSID(i, network.bssid);
       network.hasBssid = network.channel > 0 && hasBssidBytes(network.bssid);
+#endif
       networks.push_back(network);
     } else if (rssi > existing->rssi) {
       existing->rssi = rssi;
       existing->isEncrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
       existing->hasSavedPassword = WIFI_STORE.hasSavedCredential(existing->ssid);
+#ifdef SIMULATOR
+      existing->channel = 0;
+      existing->hasBssid = false;
+#else
       existing->channel = WiFi.channel(i);
       WiFi.BSSID(i, existing->bssid);
       existing->hasBssid = existing->channel > 0 && hasBssidBytes(existing->bssid);
+#endif
     }
   }
 
@@ -434,7 +444,11 @@ void WifiSelectionActivity::attemptConnection() {
             "Connecting to %s on channel %d via BSSID %02x:%02x:%02x:%02x:%02x:%02x",
             selectedSSID.c_str(), static_cast<int>(selectedChannel), selectedBssid[0], selectedBssid[1],
             selectedBssid[2], selectedBssid[3], selectedBssid[4], selectedBssid[5]);
+#ifdef SIMULATOR
+    WiFi.begin(selectedSSID.c_str(), password);
+#else
     WiFi.begin(selectedSSID.c_str(), password, selectedChannel, selectedBssid);
+#endif
   } else if (password != nullptr) {
     WiFi.begin(selectedSSID.c_str(), password);
   } else {

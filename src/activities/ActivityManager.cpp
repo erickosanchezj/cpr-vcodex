@@ -26,6 +26,9 @@
 namespace {
 constexpr uint8_t AUTO_UI_REFRESH_DEBT_THRESHOLD = 4;
 constexpr uint8_t AUTO_UI_REFRESH_DEBT_MAX = 6;
+#ifdef SIMULATOR
+portMUX_TYPE waitingTaskMux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 }  // namespace
 
 void ActivityManager::requestUiTransitionRefresh(const uint8_t previousWeight, const uint8_t nextWeight) {
@@ -81,10 +84,18 @@ void ActivityManager::renderTaskLoop() {
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
+#ifdef SIMULATOR
+    taskENTER_CRITICAL(&waitingTaskMux);
+#else
     taskENTER_CRITICAL(nullptr);
+#endif
     waiter = waitingTaskHandle;
     waitingTaskHandle = nullptr;
+#ifdef SIMULATOR
+    taskEXIT_CRITICAL(&waitingTaskMux);
+#else
     taskEXIT_CRITICAL(nullptr);
+#endif
     if (waiter) {
       xTaskNotify(waiter, 1, eIncrement);
     }

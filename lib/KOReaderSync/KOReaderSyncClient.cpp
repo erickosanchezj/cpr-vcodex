@@ -17,6 +17,18 @@
 
 #include "KOReaderCredentialStore.h"
 
+#ifdef SIMULATOR
+#ifndef HTTP_EVENT_REDIRECT
+#define HTTP_EVENT_REDIRECT static_cast<http_event>(2)
+#endif
+#ifndef ESP_ERR_HTTP_CONNECT
+#define ESP_ERR_HTTP_CONNECT -10
+#endif
+#ifndef ESP_ERR_HTTP_EAGAIN
+#define ESP_ERR_HTTP_EAGAIN -11
+#endif
+#endif
+
 int KOReaderSyncClient::lastHttpCode = 0;
 int KOReaderSyncClient::lastEspError = 0;
 unsigned KOReaderSyncClient::lastHeapAtFailure = 0;
@@ -334,8 +346,13 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
   ResponseBuffer* activeBuf = effectiveResponseBuffer(buf);
 
   if (g_keepSessionOpen && g_sessionClient) {
+#ifdef SIMULATOR
+    g_sessionClient->config.url = url;
+    g_sessionClient->config.method = method;
+#else
     esp_http_client_set_url(g_sessionClient, url);
     esp_http_client_set_method(g_sessionClient, method);
+#endif
     applyAuthHeaders(g_sessionClient);
     return g_sessionClient;
   }
@@ -352,7 +369,9 @@ esp_http_client_handle_t createClient(const char* url, ResponseBuffer* buf,
     config.crt_bundle_attach = esp_crt_bundle_attach;
   }
   config.keep_alive_enable = g_keepSessionOpen;
+#ifndef SIMULATOR
   config.max_redirection_count = 3;
+#endif
   config.username = KOREADER_STORE.getUsername().c_str();
   config.password = KOREADER_STORE.getPassword().c_str();
   config.auth_type = HTTP_AUTH_TYPE_BASIC;
@@ -431,7 +450,9 @@ KOReaderSyncClient::Error KOReaderSyncClient::registerUser(const std::string& us
   config.buffer_size = HTTP_BUF_SIZE;
   config.buffer_size_tx = 512;
   if (urlUsesTls(url)) config.crt_bundle_attach = esp_crt_bundle_attach;
+#ifndef SIMULATOR
   config.max_redirection_count = 3;
+#endif
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (!client) {
     lastEspError = ESP_ERR_NO_MEM;

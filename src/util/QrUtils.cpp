@@ -79,9 +79,13 @@ void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const 
 
   QRCode qrcode;
   // Initialize the QR code. We use ECC_LOW for max capacity.
+#ifdef SIMULATOR
+  int8_t res = qrcode_initText(&qrcode, qrcodeBytes.get(), version, ECC_LOW, payload);
+#else
   int8_t res =
       qrcode_initBytes(&qrcode, qrcodeBytes.get(), version, ECC_LOW, reinterpret_cast<uint8_t*>(const_cast<char*>(payload)),
                        static_cast<uint16_t>(len));
+#endif
 
   if (res == 0) {
     const int maxDim = std::min(bounds.width, bounds.height);

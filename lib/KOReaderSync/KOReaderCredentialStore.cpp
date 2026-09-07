@@ -198,6 +198,9 @@ std::string KOReaderCredentialStore::hashPassword(const std::string& password) {
   md5.add(reinterpret_cast<const uint8_t*>(password.data()), password.size());
   md5.calculate();
 
+#ifdef SIMULATOR
+  return std::string(md5.toString().c_str());
+#else
   uint8_t digest[16];
   md5.getBytes(digest);
 
@@ -209,6 +212,7 @@ std::string KOReaderCredentialStore::hashPassword(const std::string& password) {
   }
   hex[32] = '\0';
   return std::string(hex);
+#endif
 }
 
 bool KOReaderCredentialStore::hasCredentials() const { return !getUsername().empty() && !getPassword().empty(); }

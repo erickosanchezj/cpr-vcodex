@@ -207,9 +207,13 @@ void CrossPointWebServerActivity::startAccessPoint() {
   WiFi.mode(WIFI_AP);
   delay(100);
 
+#ifdef SIMULATOR
+  LOG_DBG("WEBACT", "Skipping AP DHCP lease range config in simulator");
+#else
   if (!WiFi.softAPConfig(AP_LOCAL_IP, AP_GATEWAY, AP_SUBNET, AP_DHCP_START, AP_LOCAL_IP)) {
     LOG_DBG("WEBACT", "WARNING: Failed to configure AP DHCP lease range");
   }
+#endif
 
   // Start soft AP
   bool apStarted;
